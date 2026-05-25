@@ -139,22 +139,19 @@ class BrowseCrawlScreen(Screen):
             Static("", id="crawl-status"),
             Button("▶️ Bắt đầu crawl", variant="success", id="start-crawl"),
             Button("← Quay lại", variant="default", id="back"),
-            Static("", id="crawl-log"),
+            Log(id="crawl-log"),
             id="crawl-content",
         )
         yield Footer()
 
     def write_log(self, msg: str):
-        log = self.query_one("#crawl-log")
-        current = log.renderable or ""
-        log.update(f"{current}\n[{time.strftime('%H:%M:%S')}] {msg}")
+        self.query_one("#crawl-log").write_line(f"[{time.strftime('%H:%M:%S')}] {msg}")
 
     @work
     async def do_crawl(self):
         self.write_log("🔄 Bắt đầu crawl...")
+        self.write_log("  ⚠️ Cần cookies 1688 từ Chrome để crawl 1688 (nếu chưa có sẽ bỏ qua)")
         total = 0
-
-        merged_config = {"sources": {"1688": {"max_pages": 1, "delay_seconds": 1}}, "supplier_scoring": {"enabled": False}}
 
         for i, kw in enumerate(BROAD_KEYWORDS, 1):
             self.write_log(f"  [{i}/{len(BROAD_KEYWORDS)}] {kw['en']} / {kw['cn']}")
@@ -170,7 +167,7 @@ class BrowseCrawlScreen(Screen):
                 for p in products:
                     raw.append({
                         "id": f"ae_{p.id}",
-                        "title_cn": p.title_cn,
+                        "title_cn": p.title_cn or kw.get("cn", ""),
                         "title_en": kw["en"],
                         "price_cny": p.price_cny,
                         "image_urls": p.image_urls,
@@ -182,8 +179,37 @@ class BrowseCrawlScreen(Screen):
                 total += len(raw)
                 if added:
                     self.write_log(f"    ✅ +{added} sản phẩm (AE)")
+            except Exception as exc:
+                self.write_log(f"    ⚠️ AE lỗi: {exc}")
             finally:
                 ae.close()
+
+            # 1688
+            c8 = Ali1688Scraper({"max_pages": 1, "delay_seconds": 1, "dropship_filter": True})
+            try:
+                products = await asyncio.get_event_loop().run_in_executor(
+                    None, c8.crawl_by_keywords, [kw["cn"]]
+                )
+                raw = []
+                for p in products:
+                    raw.append({
+                        "id": f"1688_{p.id}",
+                        "title_cn": p.title_cn or kw.get("cn", ""),
+                        "title_en": kw["en"],
+                        "price_cny": p.price_cny,
+                        "image_urls": p.image_urls,
+                        "detail_url": p.detail_url,
+                        "platform": p.platform,
+                        "source_keyword": kw["cn"],
+                    })
+                added = add_to_pool(raw)
+                total += len(raw)
+                if added:
+                    self.write_log(f"    ✅ +{added} sản phẩm (1688)")
+            except Exception as exc:
+                self.write_log(f"    ⚠️ 1688 lỗi: {exc}")
+            finally:
+                c8.close()
 
             await asyncio.sleep(1)
 
@@ -558,6 +584,10 @@ class StoreDetailScreen(Screen):
             ),
             Static("📝 Nhật ký:", classes="section-title"),
             Log(id="log"),
+            Static("", classes="section-title"),
+            Static("🛠 Công cụ", classes="section-title"),
+            Button("🍪 Xuất cookies 1688", variant="default", id="export-cookies"),
+            Button("🔌 Kiểm tra Shopee API", variant="default", id="check-shopee"),
             Button("← Quay lại", variant="default", id="back"),
             id="detail-content",
         )
@@ -721,6 +751,12 @@ class StoreDetailScreen(Screen):
     @work
     async def run_video(self):
         self.write_log("Xử lý video...")
+        # Check BGM availability
+        bgm_dir = Path("assets/background_music")
+        mp3s = list(bgm_dir.glob("*.mp3")) if bgm_dir.exists() else []
+        if not mp3s:
+            self.write_log("  ⚠️ Không tìm thấy file .mp3 trong assets/background_music/")
+            self.write_log("  Video sẽ xuất ở chế độ không âm thanh (muted)")
         products_path = self._data_dir / "products_with_images.json"
         if not products_path.exists():
             self.write_log("Không có sản phẩm để xử lý video")
@@ -899,6 +935,49 @@ class StoreDetailScreen(Screen):
             )
             return
 
+        # Run variant manager to detect split/merge needs
+        products_path = self._data_dir / "products_with_images.json"
+        variant_tier_map: dict[str, dict] = {}
+        if products_path.exists():
+            try:
+                from src.processing.variant_manager import VariantManager
+                from dataclasses import asdict
+                with open(products_path, encoding="utf-8") as f:
+                    raw_products = json.load(f)
+                vm = VariantManager(store_cfg, self.store_id)
+                processed = await asyncio.get_event_loop().run_in_executor(
+                    None, vm.process_products, raw_products, self.store_id
+                )
+                # Build map: product_id -> tier_variations from variant groups
+                groups_path = self._data_dir / "variant_groups.json"
+                if groups_path.exists():
+                    with open(groups_path, encoding="utf-8") as gf:
+                        groups = json.load(gf)
+                    for g in groups:
+                        parent_id = g.get("parent_source_id", "")
+                        if g.get("products"):
+                            options = []
+                            variations = []
+                            for idx, prod in enumerate(g["products"]):
+                                label = prod.get("variation_label", f"Option {idx}")
+                                sku = prod.get("variation_sku", f"sku_{idx}")
+                                price = prod.get("price_vnd") or prod["source"].get("price_cny", 0) * 3500 * 2.5
+                                if label not in options:
+                                    options.append(label)
+                                variations.append({
+                                    "tier_index": [options.index(label)],
+                                    "variation_sku": sku,
+                                    "variation_stock": 999,
+                                    "variation_price": int(price),
+                                })
+                            variant_tier_map[parent_id] = {
+                                "tier_variation": [{"name": "Phân loại", "option_list": options}],
+                                "variation": variations,
+                            }
+                self.write_log(f"  🔀 Variant: {len(variant_tier_map)} groups detected")
+            except Exception as e:
+                self.write_log(f"  ⚠️ Variant manager skipped: {e}")
+
         client = ShopeeClient(store_cfg)
         niche_name = store_cfg.get("niche", {}).get("keywords_vn", [self.store_id])[0]
 
@@ -917,19 +996,6 @@ class StoreDetailScreen(Screen):
         try:
             for i, cap in enumerate(captions, 1):
                 self.write_log(f"  [{i}/{len(captions)}] \u0110ang x\u1eed l\u00fd {cap.get('product_id')}...")
-
-                # Upload images
-                image_ids = []
-                for img_path in cap.get("images_processed", [])[:9]:
-                    if Path(img_path).exists():
-                        iid = await asyncio.get_event_loop().run_in_executor(None, client.upload_image, img_path)
-                        if iid:
-                            image_ids.append(iid)
-
-                if not image_ids:
-                    self.write_log(f"    ⚠️ Kh\u00f4ng upload \u0111\u01b0\u1ee3c \u1ea3nh, b\u1ecf qua")
-                    results.append({**cap, "shopee_status": "no_images", "shopee_error": ""})
-                    continue
 
                 # Check pricing report for profitability
                 price_vnd = cap.get("price_vnd", 0)
@@ -981,6 +1047,7 @@ class StoreDetailScreen(Screen):
                     image_ids=image_ids,
                     category_id=store_cfg.get("niche", {}).get("category_shopee_id", 0),
                     logistic_id=shopee_cfg.get("default_logistic_id", 80001),
+                    tier_variations=variant_tier_map.get(pid_check, {}),
                 )
 
                 item_id = client.add_item(sp)
@@ -1125,6 +1192,51 @@ class StoreDetailScreen(Screen):
         except Exception as e:
             self.write_log(f"❌ Lỗi Auto Care: {e}")
 
+    def do_export_cookies(self):
+        self.write_log("🍪 Xuất cookies 1688 từ Chrome...")
+        try:
+            from src.source.ali1688 import extract_chrome_cookies
+            cookies = extract_chrome_cookies()
+            if cookies:
+                self.write_log(f"  ✅ Đã xuất {len(cookies)} cookies (domain: 1688.com)")
+                import json
+                cookie_path = Path("config") / "1688_cookies.json"
+                with open(cookie_path, "w", encoding="utf-8") as f:
+                    json.dump(cookies, f, ensure_ascii=False, indent=2)
+                self.write_log(f"  💾 Đã lưu vào {cookie_path}")
+            else:
+                self.write_log("  ⚠️ Không tìm thấy cookies 1688 trong Chrome.")
+                self.write_log("  Hãy đăng nhập 1688.com trong Chrome trước, hoặc dùng scripts/export_cookies.py")
+        except Exception as e:
+            self.write_log(f"  ❌ Lỗi: {e}")
+
+    def do_check_shopee(self):
+        self.write_log("🔌 Kiểm tra kết nối Shopee API...")
+        store_cfg = self._store_cfg
+        shopee_cfg = store_cfg.get("shopee", {})
+        pid = shopee_cfg.get("partner_id", "")
+        key = shopee_cfg.get("partner_key", "")
+        token = shopee_cfg.get("access_token", "")
+        shop_id = shopee_cfg.get("shop_id", "")
+        if not pid or not key:
+            self.write_log("  ⚠️ Partner ID hoặc Partner Key chưa được cấu hình.")
+            self.write_log("  Vào Sửa config để nhập thông tin Shopee.")
+            return
+        self.write_log(f"  Partner ID: {pid}")
+        self.write_log(f"  Shop ID: {shop_id or '(trống)'}")
+        self.write_log(f"  Access Token: {'...' + token[-8:] if len(token) > 8 else '(trống)'}")
+        try:
+            client = ShopeeClient(store_cfg)
+            result = client._request("GET", "/api/v2/shop/get_shop_info", {})
+            if result.get("error") is None or result.get("error") == 0:
+                shop_name = result.get("response", {}).get("shop_name", "unknown")
+                self.write_log(f"  ✅ Kết nối thành công! Shop: {shop_name}")
+            else:
+                self.write_log(f"  ❌ Kết nối thất bại: {result.get('message', str(result))}")
+            client.close()
+        except Exception as e:
+            self.write_log(f"  ❌ Lỗi kết nối: {e}")
+
     @work
     async def run_all(self):
         self.write_log("▶️ Chạy toàn bộ pipeline...")
@@ -1194,6 +1306,13 @@ class StoreDetailScreen(Screen):
                 ConfirmScreen("Auto Care", "Gửi tin nhắn chăm sóc cho đơn hàng?", "customercare"),
                 lambda ok: self.run_customercare() if ok else None,
             )
+        elif btn_id == "export-cookies":
+            self.app.push_screen(
+                ConfirmScreen("Xuất cookies 1688", "Đọc cookies 1688 từ Chrome và lưu vào config?", "cookies"),
+                lambda ok: self.do_export_cookies() if ok else None,
+            )
+        elif btn_id == "check-shopee":
+            self.do_check_shopee()
         elif btn_id == "run-all":
             self.app.push_screen(
                 ConfirmScreen("Xác nhận pipeline", f"Chạy toàn bộ: Crawl → Ảnh → Video → Caption → Đăng Shopee?", "all"),

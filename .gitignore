@@ -5,6 +5,9 @@ __pycache__/
 dist/
 build/
 
+# Analysis output
+analysis_results.json
+
 # Data (generated — per-store product, image, video, order data)
 data/*/
 data/orders_to_fulfill.json

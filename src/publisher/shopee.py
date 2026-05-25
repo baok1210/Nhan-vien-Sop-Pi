@@ -18,10 +18,10 @@ class ShopeeClient:
 
     def __init__(self, config: dict):
         s = config.get("shopee", {})
-        self.partner_id = int(s.get("partner_id", 0))
+        self.partner_id = int(s.get("partner_id", "0") or "0")
         self.partner_key = s.get("partner_key", "")
         self.redirect_url = s.get("redirect_url", "")
-        self.shop_id = int(s.get("shop_id", 0))
+        self.shop_id = int(s.get("shop_id", "0") or "0")
         self.access_token = s.get("access_token", "")
         self.refresh_token = s.get("refresh_token", "")
         self.env = s.get("environment", "uat")
@@ -107,7 +107,7 @@ class ShopeeClient:
     def get_attributes(self, category_id: int) -> list:
         path = "/api/v2/product/get_attribute"
         data = {"category_id": category_id}
-        result = self._request("GET", path)
+        result = self._request("POST", path, data)
         return result.get("response", {}).get("attribute_list", [])
 
     def add_item(self, product: ShopeeProduct) -> Optional[int]:
@@ -143,6 +143,11 @@ class ShopeeClient:
                 "days_to_ship": 7,
             },
         }
+
+        if product.tier_variations:
+            tier = product.tier_variations
+            data["tier_variation"] = tier.get("tier_variation", [])
+            data["variation"] = tier.get("variation", [])
 
         result = self._request("POST", path, data)
         if result.get("error") == 0 or result.get("error") is None:
