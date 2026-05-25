@@ -1,0 +1,82 @@
+{
+  "niche": {
+    "name": "phu-kien-dien-thoai",
+    "keywords_vn": ["ốp lưng điện thoại", "phụ kiện điện thoại"],
+    "keywords_cn": ["手机壳", "手机配件"],
+    "keywords_en": ["phone case", "phone accessories"],
+    "category_shopee_id": 12345,
+    "max_price_cny": 50,
+    "min_margin_percent": 30
+  },
+  "source": {
+    "1688": {
+      "enabled": true,
+      "method": "cookie",
+      "dropship_filter": true,
+      "max_pages": 3,
+      "delay_seconds": 3,
+      "proxy": ""
+    },
+    "aliexpress": {
+      "enabled": true,
+      "method": "direct",
+      "max_pages": 3,
+      "delay_seconds": 2,
+      "proxy": ""
+    }
+  },
+  "image_processing": {
+    "max_images_per_product": 9,
+    "output_size": [800, 800],
+    "bg_removal": {
+      "enabled": false,
+      "engine": "rembg",
+      "model": "u2net",
+      "replace_bg": true,
+      "bg_color": "#FFFFFF"
+    },
+    "enhance": {
+      "sharpen": true,
+      "auto_contrast": true,
+      "upscale": false
+    },
+    "output_format": "jpeg",
+    "quality": 92
+  },
+  "ai": {
+    "caption": {
+      "provider": "google_gemini",
+      "model": "gemini-2.0-flash",
+      "api_key": "",
+      "language": "vi",
+      "tone": "professional",
+      "max_title_length": 120,
+      "num_hashtags": 10
+    },
+    "translation": {
+      "provider": "google_gemini",
+      "api_key": ""
+    }
+  },
+  "shopee": {
+    "partner_id": "",
+    "partner_key": "",
+    "redirect_url": "https://your-app.com/callback",
+    "shop_id": "",
+    "access_token": "",
+    "refresh_token": "",
+    "environment": "uat",
+    "default_logistic_id": 80001,
+    "pre_order_days": 7,
+    "item_status": "UNLIST"
+  },
+  "schedule": {
+    "crawl_interval_hours": 24,
+    "post_per_day": 10,
+    "post_interval_minutes": 60
+  },
+  "notification": {
+    "telegram_bot_token": "",
+    "telegram_chat_id": ""
+  }
+}

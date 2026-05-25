@@ -1,0 +1,275 @@
+import json
+from pathlib import Path
+from typing import Optional
+from src.utils.logger import setup_logger
+
+logger = setup_logger("caption_gen")
+
+DEFAULT_GLOSSARY_PATH = Path("config/glossary.json")
+
+CAPTION_PROMPT = """Bạn là copywriter bán hàng Shopee Việt Nam chuyên nghiệp.
+Hãy tạo nội dung siêu thị cho sản phẩm sau:
+
+# CONTEXT / DICTIONARY
+{glossary_section}
+
+Tên gốc (tiếng Trung): {title_cn}
+Danh mục: {category}
+Giá gốc: {price_cny} CNY ({price_vnd} VND)
+Đặc điểm: {features}
+
+Yêu cầu đầu ra (chỉ trả về JSON, không giải thích):
+{{
+  "title_vi": "title (tối đa 120 ký tự, có từ khóa, chuẩn SEO)",
+  "description": "mô tả ngắn 2-3 câu (tối đa 300 ký tự), nhấn mạnh lợi ích",
+  "bullet_points": ["điểm 1", "điểm 2", "điểm 3", "điểm 4", "điểm 5"],
+  "hashtags": ["#tag1", "#tag2", ..., "#tag10"]
+}}
+"""
+
+
+class CaptionGenerator:
+    def __init__(self, config: dict):
+        ai_cfg = config.get("ai", {}).get("caption", {})
+        self.provider = ai_cfg.get("provider", "google_gemini")
+        self.api_key = ai_cfg.get("api_key", "")
+        self.model = ai_cfg.get("model", "gemini-2.0-flash")
+        self.language = ai_cfg.get("language", "vi")
+        self.tone = ai_cfg.get("tone", "professional")
+        self.max_title_length = ai_cfg.get("max_title_length", 120)
+        self.num_hashtags = ai_cfg.get("num_hashtags", 10)
+        self._fallback_logged = False
+        self._glossary: dict[str, dict] = {}
+        self._glossary_match: dict[str, list[tuple[str, str]]] = {}
+        self._load_glossary(config)
+
+    def _load_glossary(self, config: dict):
+        path_str = config.get("glossary_path", "") or str(DEFAULT_GLOSSARY_PATH)
+        path = Path(path_str)
+        if not path.exists():
+            logger.info(f"Glossary not found at {path}, skipping")
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load glossary: {e}")
+            return
+
+        for cat_key, cat_data in raw.items():
+            terms = cat_data.get("glossary", {})
+            keywords = [kw.lower() for kw in cat_data.get("keywords", [])]
+            self._glossary[cat_key] = terms
+            for kw in keywords:
+                for word in kw.split():
+                    if word not in self._glossary_match:
+                        self._glossary_match[word] = []
+                    for cn, vi in terms.items():
+                        self._glossary_match[word].append((cn, vi))
+
+    def _resolve_glossary(self, category: str, title_cn: str = "") -> str:
+        matched: dict[str, str] = {}
+        cat_lower = (category or "").lower()
+        for cat_key, terms in self._glossary.items():
+            cat_kws = list(self._glossary_match.keys())
+            for kw in cat_kws:
+                if kw in cat_lower or kw in title_cn.lower():
+                    for cn, vi in self._glossary_match.get(kw, []):
+                        if cn not in matched:
+                            matched[cn] = vi
+
+        if not matched and title_cn:
+            for cn, vi_list in self._glossary_match.items():
+                if isinstance(vi_list, list):
+                    for cn_term, vi_term in vi_list:
+                        if cn_term in title_cn and cn_term not in matched:
+                            matched[cn_term] = vi_term
+
+        if not matched:
+            return ""
+
+        lines = ["Danh sách thuật ngữ chuyên ngành (bắt buộc dùng các từ này khi dịch):"]
+        for cn, vi in matched.items():
+            lines.append(f"- {cn} -> {vi}")
+        return "\n".join(lines)
+
+    def _glossary_prompt(self, category: str, title_cn: str = "") -> str:
+        section = self._resolve_glossary(category, title_cn)
+        if not section:
+            return "Không có từ điển chuyên ngành cho danh mục này. Hãy dịch dựa trên ngữ cảnh chung."
+        return section
+
+    def generate(
+        self,
+        title_cn: str,
+        category: str = "",
+        price_cny: float = 0,
+        features: str = "",
+        price_vnd: float = 0,
+    ) -> dict:
+        if self.provider in ("google_gemini", "openai") and not self.api_key:
+            if not self._fallback_logged:
+                logger.info(f"{self.provider}: no API key configured, using template fallback")
+                self._fallback_logged = True
+            return self._generate_template(title_cn, category, price_cny, features, price_vnd)
+        glossary_section = self._glossary_prompt(category, title_cn)
+        if self.provider == "google_gemini":
+            return self._generate_gemini(title_cn, category, price_cny, features, price_vnd, glossary_section)
+        elif self.provider == "openai":
+            return self._generate_openai(title_cn, category, price_cny, features, price_vnd, glossary_section)
+        logger.warning(f"No provider configured ({self.provider}), using template")
+        return self._generate_template(title_cn, category, price_cny, features, price_vnd)
+
+    def _build_prompt(self, title_cn, category, price_cny, features, price_vnd, glossary_section) -> str:
+        return CAPTION_PROMPT.format(
+            glossary_section=glossary_section,
+            title_cn=title_cn,
+            category=category,
+            price_cny=price_cny,
+            price_vnd=int(price_vnd),
+            features=features or "không có thông tin thêm",
+        )
+
+    def _generate_gemini(
+        self, title_cn, category, price_cny, features, price_vnd, glossary_section
+    ) -> dict:
+        try:
+            import google.genai as genai
+            client = genai.Client(api_key=self.api_key)
+            prompt = self._build_prompt(title_cn, category, price_cny, features, price_vnd, glossary_section)
+            resp = client.models.generate_content(model=self.model, contents=prompt)
+            return self._parse_response(resp.text)
+        except ImportError:
+            try:
+                import google.generativeai as genai_old
+                genai_old.configure(api_key=self.api_key)
+                model = genai_old.GenerativeModel(self.model)
+                prompt = self._build_prompt(title_cn, category, price_cny, features, price_vnd, glossary_section)
+                resp = model.generate_content(prompt)
+                return self._parse_response(resp.text)
+            except ImportError:
+                logger.warning("google generativeai not installed, using template")
+                return self._generate_template(title_cn, category, price_cny, features, price_vnd)
+            except Exception as e:
+                logger.info(f"Gemini (legacy) failed: {e}, using template")
+                return self._generate_template(title_cn, category, price_cny, features, price_vnd)
+
+    def _generate_openai(
+        self, title_cn, category, price_cny, features, price_vnd, glossary_section
+    ) -> dict:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=self.api_key)
+            prompt = self._build_prompt(title_cn, category, price_cny, features, price_vnd, glossary_section)
+            resp = client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+            )
+            return self._parse_response(resp.choices[0].message.content)
+        except ImportError:
+            logger.warning("openai not installed, using template")
+            return self._generate_template(title_cn, category, price_cny, features, price_vnd)
+        except Exception as e:
+            logger.info(f"OpenAI failed: {e}, using template")
+            return self._generate_template(title_cn, category, price_cny, features, price_vnd)
+
+    def _generate_template(
+        self, title_cn, category, price_cny, features, price_vnd
+    ) -> dict:
+        from src.processing.text_translate import TextTranslator
+        translator = TextTranslator({})
+        title_vi = translator.translate(title_cn)
+
+        glossary_section = self._glossary_prompt(category, title_cn)
+        if glossary_section and "Không có từ điển" not in glossary_section:
+            for line in glossary_section.split("\n"):
+                if "->" in line:
+                    parts = line.split("->")
+                    if len(parts) == 2:
+                        cn_term = parts[0].strip().lstrip("- ")
+                        vi_term = parts[1].strip()
+                        if cn_term in title_cn:
+                            title_vi = title_vi.replace(
+                                translator.translate(cn_term), vi_term
+                            )
+
+        words = title_vi.lower().split()
+        hashtags = []
+        for w in words[:10]:
+            w_clean = w.strip(",.!?()[]{}")
+            if len(w_clean) > 2:
+                hashtags.append(f"#{w_clean}")
+        if category:
+            cat_words = category.lower().replace("&", "").split()
+            for w in cat_words:
+                tag = f"#{w.strip()}"
+                if tag not in hashtags:
+                    hashtags.append(tag)
+        hashtags = hashtags[:10]
+        if not hashtags:
+            hashtags = ["#sanphamgiatot", "#muasamthongminh"]
+
+        cat_lower = category.lower() if category else ""
+        if "pet" in cat_lower or "dog" in cat_lower or "cat" in cat_lower:
+            bullets = [
+                f"Sản phẩm chất lượng, an toàn cho thú cưng",
+                f"Thiết kế tiện lợi, dễ sử dụng",
+                f"Phù hợp cho mọi giống chó/mèo",
+                f"Giá chỉ từ {int(price_vnd):,}đ",
+                f"Giao hàng nhanh toàn quốc",
+            ]
+        elif "phone" in cat_lower or "điện thoại" in cat_lower:
+            bullets = [
+                f"Chất liệu cao cấp, bền bỉ theo thời gian",
+                f"Thiết kế ôm sát, bảo vệ toàn diện",
+                f"Chống trầy, chống sốc hiệu quả",
+                f"Dễ dàng lắp đặt và tháo rời",
+                f"Giá chỉ từ {int(price_vnd):,}đ",
+            ]
+        elif "climb" in cat_lower or "hiking" in cat_lower or "outdoor" in cat_lower or "thể thao" in cat_lower:
+            bullets = [
+                f"Chất liệu bền bỉ, chịu lực tốt",
+                f"Thiết kế chuyên nghiệp, an toàn khi sử dụng",
+                f"Phù hợp cho mọi hoạt động ngoài trời",
+                f"Nhẹ, gọn, dễ mang theo",
+                f"Giá chỉ từ {int(price_vnd):,}đ",
+            ]
+        else:
+            bullets = [
+                f"Chất liệu cao cấp, bền đẹp",
+                f"Thiết kế thông minh, tiện lợi",
+                f"Phù hợp sử dụng hàng ngày",
+                f"Giá chỉ từ {int(price_vnd):,}đ",
+                f"Cam kết hàng giống mô tả",
+            ]
+
+        return {
+            "title_vi": self._clean_title(title_vi),
+            "description": f"{title_vi} - {bullets[0]}. {bullets[1]}. Giao hàng nhanh toàn quốc. Đặt mua ngay!",
+            "bullet_points": bullets,
+            "hashtags": hashtags,
+        }
+
+    def _clean_title(self, title: str) -> str:
+        max_len = self.max_title_length
+        if len(title) > max_len:
+            title = title[: title.rfind(" ", 0, max_len)]
+        return title.strip().capitalize()
+
+    def _parse_response(self, text: str) -> dict:
+        import json
+        import re
+        try:
+            match = re.search(r"\{.*\}", text, re.DOTALL)
+            if match:
+                return json.loads(match.group())
+            return json.loads(text)
+        except Exception as e:
+            logger.error(f"Parse AI response failed: {e}")
+            return {
+                "title_vi": text[:120],
+                "description": text[:300],
+                "bullet_points": [],
+                "hashtags": [],
+            }

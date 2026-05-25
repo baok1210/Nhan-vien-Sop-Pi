@@ -1,0 +1,154 @@
+{
+  "niche": {
+    "name": "phu-kien-dien-thoai",
+    "keywords_vn": ["ốp lưng điện thoại", "phụ kiện điện thoại"],
+    "keywords_cn": ["手机壳", "手机配件"],
+    "keywords_en": ["phone case", "phone accessories"],
+    "category_shopee_id": 12345,
+    "max_price_cny": 50,
+    "min_margin_percent": 30,
+    "min_margin_percentage": 0.15,
+    "price_multiplier": 2.5,
+    "competitor_search_enabled": true
+  },
+  "source": {
+    "1688": {
+      "enabled": true,
+      "method": "cookie",
+      "dropship_filter": true,
+      "max_pages": 3,
+      "delay_seconds": 3,
+      "proxy": ""
+    },
+    "aliexpress": {
+      "enabled": true,
+      "method": "direct",
+      "max_pages": 3,
+      "delay_seconds": 2,
+      "proxy": ""
+    }
+  },
+  "image_processing": {
+    "max_images_per_product": 9,
+    "output_size": [800, 800],
+    "bg_removal": {
+      "enabled": false,
+      "engine": "rembg",
+      "model": "u2net",
+      "replace_bg": true,
+      "bg_color": "#FFFFFF"
+    },
+    "enhance": {
+      "sharpen": true,
+      "auto_contrast": true,
+      "upscale": false
+    },
+    "output_format": "jpeg",
+    "quality": 92,
+    "anti_duplication": {
+      "enabled": true,
+      "flip_horizontal": true,
+      "color_jitter": {
+        "brightness": 0.02,
+        "saturation": 0.02
+      },
+      "watermark": {
+        "enabled": true,
+        "image_path": "",
+        "text": "",
+        "opacity": 80,
+        "size_ratio": 0.08
+      }
+    }
+  },
+  "video_processing": {
+    "music_dir": "assets/background_music",
+    "volume": 0.3
+  },
+  "ai": {
+    "caption": {
+      "provider": "google_gemini",
+      "model": "gemini-2.0-flash",
+      "api_key": "",
+      "language": "vi",
+      "tone": "professional",
+      "max_title_length": 120,
+      "num_hashtags": 10
+    },
+    "translation": {
+      "provider": "google_gemini",
+      "api_key": ""
+    },
+    "glossary_path": "config/glossary.json"
+  },
+  "variant_management": {
+    "max_variants_per_listing": 50,
+    "split_enabled": true,
+    "merge_enabled": false
+  },
+  "flash_sale": {
+    "discount_percentage": 15,
+    "min_discount_percentage": 10,
+    "max_discount_percentage": 20,
+    "slots_per_day": 2
+  },
+  "shopee": {
+    "partner_id": "",
+    "partner_key": "",
+    "redirect_url": "https://your-app.com/callback",
+    "shop_id": "",
+    "access_token": "",
+    "refresh_token": "",
+    "environment": "uat",
+    "default_logistic_id": 80001,
+    "pre_order_days": 7,
+    "item_status": "UNLIST",
+    "cookies": {}
+  },
+  "schedule": {
+    "crawl_interval_hours": 24,
+    "post_per_day": 10,
+    "post_interval_minutes": 60
+  },
+  "supplier_scoring": {
+    "enabled": true,
+    "min_score_to_pass": 0.4,
+    "weights": {
+      "years_active": 0.2,
+      "response_rate": 0.25,
+      "delivery_speed": 0.2,
+      "repeat_purchase": 0.25,
+      "rating": 0.1
+    }
+  },
+  "trend_hijacker": {
+    "enabled": true,
+    "spike_threshold": 1.5,
+    "scan_interval_hours": 6,
+    "max_keywords_to_track": 20
+  },
+  "order_management": {
+    "enabled": true,
+    "auto_fulfill": false,
+    "fulfillment_buffer_hours": 2
+  },
+  "cashflow": {
+    "lead_time_days": 7,
+    "shopee_settlement_days": 3,
+    "buffer_days": 2,
+    "daily_capital_reserve": 500000
+  },
+  "virtual_hub": {
+    "hub_name": "default",
+    "auto_map_enabled": true
+  },
+  "customer_care": {
+    "enabled": true,
+    "review_voucher_discount_pct": 5,
+    "cooldown_between_messages_hours": 48
+  },
+  "notification": {
+    "telegram_bot_token": "",
+    "telegram_chat_id": ""
+  }
+}

@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Data (generated — per-store product, image, video, order data)
+data/*/
+data/orders_to_fulfill.json
+data/product_pool.json
+data/trend_history.json
+data/trend_triggers.json
+data/trend_trigger_*.json
+data/tracking_map.json
+data/exchange_rate_cache.db
+config/stores/
+
+# Assets (user-provided)
+assets/background_music/*.mp3
+assets/video_templates/
+
+# Secrets & config
+config/stores/
+*.env
+.env*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Temp
+tmp/
+temp/
