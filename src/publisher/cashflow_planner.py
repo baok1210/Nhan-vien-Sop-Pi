@@ -25,6 +25,7 @@ class CashFlowPlanner:
         self.shopee_settlement_days = int(cf.get("shopee_settlement_days", 3))
         self.buffer_days = int(cf.get("buffer_days", 2))
         self.daily_capital_reserve = float(cf.get("daily_capital_reserve", 0))
+        self.price_multiplier = float(config.get("niche", {}).get("price_multiplier", 2.5))
 
     # ── Data loaders ──────────────────────────────────────────────
 
@@ -101,8 +102,14 @@ class CashFlowPlanner:
             pricing_item = pricing.get(source_id, {})
             final_price = float(pricing_item.get("final_price_vnd", price_vnd))
 
-            # Margin info
-            cost_vnd = cost_cny * 3500 * 2.5  # approximate from exchange rate
+            # Margin info: cost = CNY→VND (no multiplier), receivable = selling price
+            import asyncio as _asyncio
+            from src.utils.exchange_rate import get_cny_vnd_rate, FALLBACK_RATE
+            try:
+                rate = _asyncio.run(get_cny_vnd_rate())
+            except RuntimeError:
+                rate = FALLBACK_RATE
+            cost_vnd = cost_cny * rate
             receivable = final_price * qty if final_price else price_vnd * qty
             cost = cost_vnd * qty
 
