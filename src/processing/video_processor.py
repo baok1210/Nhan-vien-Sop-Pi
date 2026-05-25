@@ -106,7 +106,7 @@ class VideoProcessor:
             return None
 
     async def download_videos(
-        self, items: list[tuple[str, str, str]], output_dir: str
+        self, items: list[tuple[str, str]], output_dir: str
     ) -> list[tuple[str, Optional[str]]]:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         async with httpx.AsyncClient(

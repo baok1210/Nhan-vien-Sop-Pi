@@ -63,6 +63,13 @@ def cluster_products(
         logger.warning(f"Too few products ({len(products)}) for clustering")
         return []
 
+    # Filter out products with empty titles (scrape failures, blocked sources)
+    valid = [p for p in products if _combine_title(p)]
+    if len(valid) < min_cluster_size:
+        logger.warning(f"Too few valid titles ({len(valid)}/{len(products)}) for clustering")
+        return []
+    products = valid
+
     titles = [_combine_title(p) for p in products]
 
     vec = TfidfVectorizer(
