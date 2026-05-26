@@ -1,4 +1,4 @@
-import asyncio, random, io
+import asyncio, random, io, re as _re
 from pathlib import Path
 from typing import Optional
 import httpx
@@ -6,6 +6,13 @@ from PIL import Image, ImageEnhance, ImageDraw, ImageFont
 from src.utils.logger import setup_logger
 
 logger = setup_logger("image_processor")
+
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+]
 
 
 class ImageProcessor:
@@ -19,7 +26,6 @@ class ImageProcessor:
         self.replace_bg = cfg.get("bg_removal", {}).get("replace_bg", True)
         self.quality = cfg.get("quality", 92)
         self.format = cfg.get("output_format", "jpeg")
-        # Anti-duplication
         ad = cfg.get("anti_duplication", {})
         self.ad_enabled = ad.get("enabled", True)
         self.ad_flip = ad.get("flip_horizontal", True)
@@ -32,34 +38,36 @@ class ImageProcessor:
         self.wm_opacity = wm.get("opacity", 80)
         self.wm_size_ratio = wm.get("size_ratio", 0.08)
 
+    def _get_ext(self, url: str) -> str:
+        path = url.split("?")[0].split("#")[0]
+        dot = path.rfind(".")
+        if dot >= 0 and "/" not in path[dot + 1 :]:
+            ext = path[dot + 1 :].lower()
+            if ext in ("jpg", "jpeg", "png", "webp", "gif", "bmp"):
+                return ext
+        return "jpg"
+
     def download_images(
         self, urls: list[str], output_dir: str, product_id: str
     ) -> list[str]:
-        try:
-            loop = asyncio.get_running_loop()
-            return asyncio.run_coroutine_threadsafe(
-                self._download_images_async(urls, output_dir, product_id), loop
-            ).result()
-        except RuntimeError:
-            return asyncio.run(
-                self._download_images_async(urls, output_dir, product_id)
-            )
+        return asyncio.run(
+            self._download_images_async(urls, output_dir, product_id)
+        )
 
     async def _download_images_async(
         self, urls: list[str], output_dir: str, product_id: str
     ) -> list[str]:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         saved = []
+        ua = random.choice(_USER_AGENTS)
         client = httpx.AsyncClient(
             timeout=30, follow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36"},
+            headers={"User-Agent": ua},
         )
 
         tasks = []
         for i, url in enumerate(urls[: self.max_images]):
-            path_part = url.split("?")[0].split("#")[0]
-            dot = path_part.rfind(".")
-            ext = path_part[dot+1:] if dot >= 0 and "/" not in path_part[dot+1:] else "jpg"
+            ext = self._get_ext(url)
             fname = f"{product_id}_{i:02d}.{ext}"
             tasks.append(self._download_one(client, url, output_dir, fname, saved))
 
@@ -68,15 +76,20 @@ class ImageProcessor:
         logger.info(f"Downloaded {len(saved)}/{len(urls)} images for {product_id}")
         return saved
 
-    async def _download_one(self, client, url, out_dir, fname, saved_list):
-        try:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                path = Path(out_dir) / fname
-                path.write_bytes(resp.content)
-                saved_list.append(str(path))
-        except Exception as e:
-            logger.debug(f"Download {url} failed: {e}")
+    async def _download_one(self, client: httpx.AsyncClient, url: str, out_dir: str, fname: str, saved_list: list):
+        for attempt in range(3):
+            try:
+                resp = await client.get(url)
+                if resp.status_code == 200 and len(resp.content) > 500:
+                    path = Path(out_dir) / fname
+                    path.write_bytes(resp.content)
+                    saved_list.append(str(path))
+                    return
+                logger.debug(f"Download {url}: status={resp.status_code}, size={len(resp.content)}")
+            except Exception as e:
+                logger.debug(f"Download {url} attempt {attempt+1} failed: {e}")
+                if attempt < 2:
+                    await asyncio.sleep(2 ** attempt)
 
     def process_single(self, input_path: str, output_dir: str) -> Optional[str]:
         try:

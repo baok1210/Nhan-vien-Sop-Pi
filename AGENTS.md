@@ -29,3 +29,12 @@ Actual data must be real; never generate dummy/mock data for testing UI.
 - Pipeline data flows: crawl → product_pool.json → images → products_with_images.json → caption → captions.json → pricing → pricing_report.json → publish → published.json
 - Downstream features (orders, cashflow, flashsale, virtualhub, CSKH) all depend on upstream pipeline steps and/or Shopee API credentials.
 - Trend detection needs ≥3 scan cycles before detecting spikes.
+
+## Code Quality Rules
+- `asyncio.get_running_loop()` + `run_coroutine_threadsafe` pattern is deprecated — use `asyncio.run()` directly in non-async contexts.
+- Scrapers must rotate User-Agent and impersonation on each retry.
+- Translation uses built-in dictionary (`_CN_VI_DICT` in text_translate.py) before falling back to AI.
+- Download URLs must validate extension via `_get_ext()` (accepts: jpg/jpeg/png/webp/gif/bmp).
+- Exchange rate cache uses JSON file (not SQLite).
+- CLI scripts use `argparse` (not raw `sys.argv`).
+- Docker deployment via `docker-compose.yml` (volume-mounts: config, data, logs, assets).

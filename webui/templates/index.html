@@ -39,6 +39,7 @@
         {% if s.has_products %}<span class="status-dot green" title="Đã crawl"></span>{% endif %}
         {% if s.has_images %}<span class="status-dot yellow" title="Đã xử lý ảnh"></span>{% endif %}
         {% if s.has_captions %}<span class="status-dot green" title="Đã tạo caption"></span>{% endif %}
+        <span class="schedule-indicator" id="sched-{{ s.id }}" style="font-size:12px;color:#999;margin-left:6px"></span>
       </div>
       <div class="flex">
         <a href="/store/{{ s.id }}/edit" class="btn btn-sm" style="background:#eee">Sửa</a>
@@ -61,6 +62,17 @@
       <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','trends')" {{ 'disabled' if running }} style="background:#e0f2f1" title="Quét từ khóa hot và phát hiện trend spike">Trend</button>
       <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','virtualhub')" {{ 'disabled' if running }} style="background:#fff8e1" title="Tự động map mã vận đơn 1688 sang đơn Shopee">Vận đơn</button>
       <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','customercare')" {{ 'disabled' if running }} style="background:#fce4ec" title="Gửi tin nhắn chăm sóc KH tự động">CSKH</button>
+    </div>
+    <div class="flex" style="margin-top:6px;gap:6px;font-size:12px">
+      <label style="color:#666">Lên lịch crawl:</label>
+      <select id="sched-interval-{{ s.id }}" style="padding:2px 4px;font-size:12px">
+        <option value="0">Tắt</option>
+        <option value="6">Mỗi 6h</option>
+        <option value="12">Mỗi 12h</option>
+        <option value="24">Mỗi 24h</option>
+        <option value="48">Mỗi 48h</option>
+      </select>
+      <button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="setSchedule('{{ s.id }}')">Áp dụng</button>
     </div>
   </div>
   {% endfor %}
@@ -375,7 +387,36 @@ function refreshLog() {
       document.getElementById('status-text').textContent = d.running ? 'Đang xử lý...' : 'Sẵn sàng';
     });
 }
+function setSchedule(storeId) {
+  var interval = parseInt(document.getElementById('sched-interval-' + storeId).value);
+  fetch('/schedule/' + storeId, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({interval_hours: interval, step: 'crawl', enabled: interval > 0})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.status) document.getElementById('sched-' + storeId).textContent = d.enabled ? '🕐 Lịch: ' + interval + 'h' : '';
+  });
+}
+
+function refreshSchedules() {
+  fetch('/schedules')
+    .then(r => r.json())
+    .then(d => {
+      d.jobs.forEach(function(j) {
+        var sid = j.name.split('/')[0];
+        var el = document.getElementById('sched-' + sid);
+        if (el) {
+          el.textContent = '🕐 ' + (j.next_run ? j.next_run.slice(0,16).replace('T',' ') : 'dang cho...');
+        }
+      });
+    });
+}
+
 setInterval(refreshLog, 2000);
+setInterval(refreshSchedules, 10000);
 refreshLog();
+refreshSchedules();
 </script>
 {% endblock %}

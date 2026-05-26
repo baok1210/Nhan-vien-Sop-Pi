@@ -1,4 +1,4 @@
-import asyncio, time, sqlite3, json
+import asyncio, time, json
 from pathlib import Path
 from src.utils.logger import setup_logger
 
@@ -6,34 +6,17 @@ logger = setup_logger("exchange_rate")
 
 FALLBACK_RATE = 3500
 API_URL = "https://open.er-api.com/v6/latest/CNY"
-CACHE_TTL_SECONDS = 12 * 3600  # 12 hours
-CACHE_DB = Path("data/exchange_rate_cache.db")
-
-
-def _init_cache():
-    CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(CACHE_DB))
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS rate_cache ("
-        "  currency TEXT PRIMARY KEY,"
-        "  rate REAL,"
-        "  updated_at REAL"
-        ")"
-    )
-    conn.commit()
-    return conn
+CACHE_TTL_SECONDS = 12 * 3600
+CACHE_FILE = Path("data/exchange_rate_cache.json")
 
 
 def _read_cache() -> float | None:
     try:
-        conn = _init_cache()
-        row = conn.execute(
-            "SELECT rate, updated_at FROM rate_cache WHERE currency = 'VND'"
-        ).fetchone()
-        conn.close()
-        if row and (time.time() - row[1]) < CACHE_TTL_SECONDS:
-            logger.info(f"Using cached rate: {row[0]:.2f} VND/CNY")
-            return row[0]
+        if not CACHE_FILE.exists():
+            return None
+        data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        if time.time() - data.get("updated_at", 0) < CACHE_TTL_SECONDS:
+            return data.get("rate")
     except Exception as e:
         logger.debug(f"Cache read failed: {e}")
     return None
@@ -41,14 +24,8 @@ def _read_cache() -> float | None:
 
 def _write_cache(rate: float):
     try:
-        conn = _init_cache()
-        conn.execute(
-            "REPLACE INTO rate_cache (currency, rate, updated_at) VALUES (?, ?, ?)",
-            ("VND", rate, time.time()),
-        )
-        conn.commit()
-        conn.close()
-        logger.info(f"Cached rate: {rate:.2f} VND/CNY")
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_FILE.write_text(json.dumps({"rate": rate, "updated_at": time.time()}), encoding="utf-8")
     except Exception as e:
         logger.debug(f"Cache write failed: {e}")
 

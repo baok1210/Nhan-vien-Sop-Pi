@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  dropship:
+    build: .
+    container_name: china-dropshop
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./assets:/app/assets
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    restart: unless-stopped

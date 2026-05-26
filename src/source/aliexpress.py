@@ -3,9 +3,15 @@ from urllib.parse import urlencode
 from curl_cffi import requests as curl_requests
 from src.models.product import ProductSource
 from src.utils.logger import setup_logger
-from src.source.browser import BrowserManager
 
 logger = setup_logger("aliexpress_scraper")
+
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+]
 
 
 class AliExpressScraper:
@@ -17,10 +23,11 @@ class AliExpressScraper:
         self.proxy = config.get("proxy")
         self.cookies = config.get("cookies")
         self._session = self._new_session()
+        self._browser_mgr = None
 
     def _new_session(self):
         s = curl_requests.Session()
-        s.impersonate = "chrome120"
+        s.impersonate = random.choice(["chrome120", "chrome110", "chrome107", "chrome99"])
         if self.proxy:
             s.proxies = {"http": self.proxy, "https": self.proxy}
         if self.cookies:
@@ -31,14 +38,9 @@ class AliExpressScraper:
 
     def _headers(self):
         return {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": random.choice(_USER_AGENTS),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": random.choice(["en-US,en;q=0.9", "zh-CN,zh;q=0.9", "vi-VN,vi;q=0.9"]),
         }
 
     def search(self, keyword: str, page: int = 1) -> list[ProductSource]:
@@ -48,7 +50,9 @@ class AliExpressScraper:
         for attempt in range(3):
             try:
                 if attempt > 0:
-                    time.sleep(random.uniform(2.0 * attempt, 5.0 * attempt))
+                    delay = random.uniform(5.0 * attempt, 10.0 * attempt)
+                    logger.info(f"  Retry {attempt+1}/3 sau {delay:.0f}s...")
+                    time.sleep(delay)
                     self._session = self._new_session()
                 resp = self._session.get(url, headers=self._headers(), timeout=30)
                 resp.raise_for_status()
@@ -62,20 +66,17 @@ class AliExpressScraper:
                     "captcha" in html[:3000].lower(),
                 ]
                 if any(anti_bot_signals):
-                    logger.warning(f"AliExpress chặn anti-bot (attempt {attempt+1}) cho '{keyword}'")
+                    logger.warning(f"AliExpress anti-bot (attempt {attempt+1}) cho '{keyword}'")
                     continue
 
                 products = self._parse_products(html)
                 if products:
                     logger.info(f"AliExpress: {len(products)} sp từ '{keyword}' trang {page}")
                     return products
-                logger.info(f"AliExpress: 0 sp từ '{keyword}' trang {page}")
                 return []
             except Exception as e:
-                logger.error(f"AliExpress lỗi cho '{keyword}' trang {page} (attempt {attempt+1}): {e}")
-                continue
-        # Fallback to Playwright (real browser bypasses x5sec)
-        logger.warning(f"curl_cffi failed, trying Playwright for '{keyword}'...")
+                logger.error(f"AliExpress lỗi '{keyword}' trang {page} (attempt {attempt+1}): {e}")
+        logger.warning(f"curl_cffi failed, trying Playwright cho '{keyword}'...")
         return self._search_with_playwright(keyword, page)
 
     def _parse_products(self, html: str) -> list[ProductSource]:
@@ -429,24 +430,22 @@ class AliExpressScraper:
         return products
 
     def _search_with_playwright(self, keyword: str, page: int = 1) -> list[ProductSource]:
-        """Fallback using Playwright (real browser) to bypass x5sec."""
-        proxy = self.proxy
         try:
-            browser_mgr = BrowserManager(headless=True, proxy=proxy).start()
-            context, page_obj = browser_mgr.new_page()
+            from src.source.browser import BrowserManager
+            if self._browser_mgr is None:
+                self._browser_mgr = BrowserManager(headless=True, proxy=self.proxy or None)
+                self._browser_mgr.start()
+            ctx, page_obj = self._browser_mgr.new_page()
             params = {"SearchText": keyword, "page": page}
-            if page > 1: params["page"] = page
             url = f"{self.SEARCH_URL}?{urlencode(params)}"
             logger.info(f"Playwright loading {url}")
             page_obj.goto(url, timeout=60000, wait_until="networkidle")
-            page_obj.wait_for_timeout(3000)
+            page_obj.wait_for_timeout(random.randint(3000, 5000))
             html = page_obj.content()
-            context.close()
-            browser_mgr.stop()
+            ctx.close()
             if len(html) > 10000:
                 logger.info(f"Playwright success: {len(html)} bytes")
                 return self._parse_products(html)
-            logger.warning(f"Playwright returned small page ({len(html)} bytes)")
             return []
         except Exception as e:
             logger.error(f"Playwright AliExpress failed: {e}")
@@ -472,3 +471,8 @@ class AliExpressScraper:
     def close(self):
         if self._session:
             self._session.close()
+        if self._browser_mgr:
+            try:
+                self._browser_mgr.stop()
+            except Exception:
+                pass

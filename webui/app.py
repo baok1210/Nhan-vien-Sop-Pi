@@ -1,5 +1,5 @@
 import sys, os, json, threading, time, asyncio, random
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from flask import Flask, render_template, request, jsonify, Response
@@ -27,6 +27,34 @@ BASE_DIR = Path(__file__).parent.parent
 
 pipeline_log: list[str] = []
 pipeline_running = False
+
+# APScheduler
+_scheduler = None
+_scheduler_jobs: dict[str, str] = {}  # store_id -> job_id
+
+
+def _get_scheduler():
+    global _scheduler
+    if _scheduler is None:
+        try:
+            from apscheduler.schedulers.background import BackgroundScheduler
+            _scheduler = BackgroundScheduler(daemon=True)
+            _scheduler.start()
+        except ImportError:
+            pass
+    return _scheduler
+
+
+def _schedule_run(store_id: str, step: str):
+    config = load_store(store_id)
+    if not config:
+        return
+    if step == 'crawl':
+        run_crawl_thread(store_id, config)
+    elif step == 'images':
+        run_images_thread(store_id, config)
+    elif step == 'caption':
+        run_caption_thread(store_id, config)
 
 def add_log(msg):
     ts = time.strftime('%H:%M:%S')
@@ -274,7 +302,19 @@ def run_publish_thread(store_id, config):
                     iid = client.upload_image(img_path)
                     if iid:
                         image_ids.append(iid)
-            src = ProductSource(id=cap.get('product_id', ''), title_cn=cap.get('title_cn', ''), price_cny=cap.get('price_cny', 0), original_price_cny=cap.get('price_cny', 0), image_urls=[], description_cn='', category_name_cn='')
+            src = ProductSource(
+                id=cap.get('product_id', ''),
+                title_cn=cap.get('title_cn', ''),
+                price_cny=cap.get('price_cny', 0),
+                original_price_cny=cap.get('price_cny', 0),
+                image_urls=[],
+                description_cn='',
+                category_name_cn='',
+                supplier_name='',
+                detail_url='',
+                platform='manual',
+                is_dropship=True,
+            )
             pp = ProductProcessed(source=src, images_processed=image_ids, title_vi=cap.get('title_vi', ''), description_vi=cap.get('description', ''), bullet_points=cap.get('bullet_points', []), hashtags=cap.get('hashtags', []), price_vnd=cap.get('price_vnd', 0))
             sp = ShopeeProduct(product=pp, image_ids=image_ids, category_id=config.get('niche', {}).get('category_shopee_id', 0))
             item_id = client.add_item(sp)
@@ -699,70 +739,82 @@ def remove_store(store_id):
         shutil.rmtree(str(data_dir))
     return jsonify({'status': 'deleted'})
 
-VN_CN_EN_DICT = {
-    # Pet supplies
-    'do choi cho meo': ('猫玩具', 'cat toys'), 'do choi meo': ('猫玩具', 'cat toys'),
-    'phu kien cho': ('狗配件', 'dog accessories'), 'phu kien cho meo': ('猫狗配件', 'pet accessories'),
-    'do dung thu cung': ('宠物用品', 'pet supplies'), 'thu cung': ('宠物', 'pet'),
-    'do choi cho cho': ('狗玩具', 'dog toys'), 'do choi thu cung': ('宠物玩具', 'pet toys'),
-    'thuc an cho meo': ('猫粮', 'cat food'), 'thuc an cho cho': ('狗粮', 'dog food'),
-    'cat ve sinh cho meo': ('猫砂', 'cat litter'), 'long cho thu cung': ('宠物笼', 'pet cage'),
-    'ao cho thu cung': ('宠物衣服', 'pet clothes'), 'day dat cho': ('狗绳', 'dog leash'),
-    # Phone accessories
-    'op lung dien thoai': ('手机壳', 'phone case'), 'op dien thoai': ('手机壳', 'phone case'),
-    'phu kien dien thoai': ('手机配件', 'phone accessories'),
-    'cuong luc dien thoai': ('钢化膜', 'tempered glass'), 'kinh cuong luc': ('钢化膜', 'tempered glass'),
-    'sac du phong': ('充电宝', 'power bank'), 'cap sac': ('充电线', 'charging cable'),
-    'tai nghe': ('耳机', 'headphones'), 'tai nghe bluetooth': ('蓝牙耳机', 'bluetooth earphones'),
-    'giap do dien thoai': ('手机支架', 'phone stand'), 'ong kinh dien thoai': ('手机镜头', 'phone lens'),
-    # Kitchen & Home
-    'do dung bep': ('厨房用具', 'kitchen tools'), 'phu kien bep': ('厨房配件', 'kitchen accessories'),
-    'dung cu nau bep': ('厨具', 'cookware'), 'do gia dung': ('家居用品', 'household items'),
-    'noi chien khong dau': ('空气炸锅', 'air fryer'), 'noi com dien': ('电饭煲', 'rice cooker'),
-    'giu nhiet': ('保温', 'insulation'), 'binh giu nhiet': ('保温杯', 'thermos'),
-    'hop dung do': ('收纳盒', 'storage box'), 'tu do': ('储物柜', 'storage cabinet'),
-    # Fashion
-    'phu kien tho trang': ('时尚配件', 'fashion accessories'),
-    'vi da': ('钱包', 'wallet'), 'tui xach': ('手提包', 'handbag'),
-    'kinh mat': ('太阳镜', 'sunglasses'), 'dong ho': ('手表', 'watch'),
-    'vong tay': ('手链', 'bracelet'), 'nhan': ('戒指', 'ring'), 'bong tai': ('耳环', 'earrings'),
-    # Electronics
-    'do dien tu': ('电子产品', 'electronics'), 'thiet bi dien tu': ('电子设备', 'electronic devices'),
-    'sac khong day': ('无线充电器', 'wireless charger'), 'loa bluetooth': ('蓝牙音箱', 'bluetooth speaker'),
-    'cap du lieu': ('数据线', 'data cable'), 'usb': ('USB', 'usb'),
-    # Beauty
-    'my pham': ('化妆品', 'cosmetics'), 'duong da': ('护肤品', 'skincare'),
-    'trang diem': ('彩妆', 'makeup'), 'dung cu lam dep': ('美容工具', 'beauty tools'),
-    'son moi': ('口红', 'lipstick'), 'ke mat': ('眼线笔', 'eyeliner'),
-    # Outdoor & Sports
-    'do leo nui': ('登山装备', 'climbing gear'), 'do the thao': ('运动装备', 'sports equipment'),
-    'gay leo nui': ('登山杖', 'trekking pole'), 'balo': ('背包', 'backpack'),
-    'giay leo nui': ('登山鞋', 'hiking shoes'), 'len trai': ('帐篷', 'tent'),
-    # Toys
-    'do choi tre em': ('儿童玩具', 'children toys'), 'do choi thong minh': ('益智玩具', 'educational toys'),
-    'do choi dieu khien': ('遥控玩具', 'remote control toy'),
-    # Car
-    'phu kien xe hoi': ('汽车配件', 'car accessories'),
+_VN_CN_DICT = {
+    'do choi cho meo': '猫玩具', 'do choi meo': '猫玩具',
+    'phu kien cho': '狗配件', 'phu kien cho meo': '猫狗配件',
+    'do dung thu cung': '宠物用品', 'thu cung': '宠物',
+    'do choi cho cho': '狗玩具', 'do choi thu cung': '宠物玩具',
+    'thuc an cho meo': '猫粮', 'thuc an cho cho': '狗粮',
+    'cat ve sinh cho meo': '猫砂', 'long cho thu cung': '宠物笼',
+    'ao cho thu cung': '宠物衣服', 'day dat cho': '狗绳',
+    'op lung dien thoai': '手机壳', 'op dien thoai': '手机壳',
+    'phu kien dien thoai': '手机配件',
+    'cuong luc dien thoai': '钢化膜', 'kinh cuong luc': '钢化膜',
+    'sac du phong': '充电宝', 'cap sac': '充电线',
+    'tai nghe': '耳机', 'tai nghe bluetooth': '蓝牙耳机',
+    'giap do dien thoai': '手机支架', 'ong kinh dien thoai': '手机镜头',
+    'do dung bep': '厨房用具', 'phu kien bep': '厨房配件',
+    'dung cu nau bep': '厨具', 'do gia dung': '家居用品',
+    'noi chien khong dau': '空气炸锅', 'noi com dien': '电饭煲',
+    'giu nhiet': '保温', 'binh giu nhiet': '保温杯',
+    'hop dung do': '收纳盒', 'tu do': '储物柜',
+    'phu kien tho trang': '时尚配件',
+    'vi da': '钱包', 'tui xach': '手提包',
+    'kinh mat': '太阳镜', 'dong ho': '手表',
+    'vong tay': '手链', 'nhan': '戒指', 'bong tai': '耳环',
+    'do dien tu': '电子产品', 'thiet bi dien tu': '电子设备',
+    'sac khong day': '无线充电器', 'loa bluetooth': '蓝牙音箱',
+    'cap du lieu': '数据线',
+    'my pham': '化妆品', 'duong da': '护肤品',
+    'trang diem': '彩妆', 'dung cu lam dep': '美容工具',
+    'son moi': '口红', 'ke mat': '眼线笔',
+    'do leo nui': '登山装备', 'do the thao': '运动装备',
+    'gay leo nui': '登山杖', 'giay leo nui': '登山鞋',
+    'do choi tre em': '儿童玩具', 'do choi thong minh': '益智玩具',
+    'do choi dieu khien': '遥控玩具',
+    'phu kien xe hoi': '汽车配件',
+}
+
+_VN_EN_DICT = {
+    'do choi cho meo': 'cat toys', 'do choi meo': 'cat toys',
+    'phu kien cho': 'dog accessories', 'phu kien cho meo': 'pet accessories',
+    'do dung thu cung': 'pet supplies', 'thu cung': 'pet',
+    'do choi cho cho': 'dog toys', 'do choi thu cung': 'pet toys',
+    'thuc an cho meo': 'cat food', 'thuc an cho cho': 'dog food',
+    'cat ve sinh cho meo': 'cat litter',
+    'ao cho thu cung': 'pet clothes', 'day dat cho': 'dog leash',
+    'op lung dien thoai': 'phone case', 'op dien thoai': 'phone case',
+    'phu kien dien thoai': 'phone accessories',
+    'cuong luc dien thoai': 'tempered glass', 'kinh cuong luc': 'tempered glass',
+    'sac du phong': 'power bank', 'cap sac': 'charging cable',
+    'tai nghe': 'headphones', 'tai nghe bluetooth': 'bluetooth earphones',
+    'giap do dien thoai': 'phone stand',
+    'do dung bep': 'kitchen tools', 'phu kien bep': 'kitchen accessories',
+    'dung cu nau bep': 'cookware',
+    'noi chien khong dau': 'air fryer', 'noi com dien': 'rice cooker',
+    'binh giu nhiet': 'thermos', 'hop dung do': 'storage box',
+    'phu kien tho trang': 'fashion accessories',
+    'vi da': 'wallet', 'tui xach': 'handbag',
+    'kinh mat': 'sunglasses', 'dong ho': 'watch',
+    'vong tay': 'bracelet', 'nhan': 'ring', 'bong tai': 'earrings',
+    'do dien tu': 'electronics', 'thiet bi dien tu': 'electronic devices',
+    'sac khong day': 'wireless charger', 'loa bluetooth': 'bluetooth speaker',
+    'my pham': 'cosmetics', 'duong da': 'skincare',
+    'dung cu lam dep': 'beauty tools', 'son moi': 'lipstick',
+    'do leo nui': 'climbing gear', 'do the thao': 'sports equipment',
+    'gay leo nui': 'trekking pole', 'giay leo nui': 'hiking shoes',
+    'do choi tre em': 'children toys', 'do choi thong minh': 'educational toys',
+    'phu kien xe hoi': 'car accessories',
 }
 
 def _dict_translate(text: str) -> tuple[str, str]:
     text_lower = text.lower().strip()
-    # Try exact match first
-    if text_lower in VN_CN_EN_DICT:
-        return VN_CN_EN_DICT[text_lower]
-    # Try matching comma-separated keywords individually
+    if text_lower in _VN_CN_DICT:
+        return (_VN_CN_DICT[text_lower], _VN_EN_DICT.get(text_lower, text_lower))
     parts = [p.strip() for p in text_lower.split(',') if p.strip()]
     if len(parts) > 1:
-        cn_parts = []
-        en_parts = []
-        for p in parts:
-            if p in VN_CN_EN_DICT:
-                cn, en = VN_CN_EN_DICT[p]
-                cn_parts.append(cn)
-                en_parts.append(en)
-            else:
-                cn_parts.append(p)
-                en_parts.append(p)
+        cn_parts = [_VN_CN_DICT.get(p, p) for p in parts]
+        en_parts = [_VN_EN_DICT.get(p, p) for p in parts]
         return (', '.join(cn_parts), ', '.join(en_parts))
     return ('', '')
 
@@ -868,7 +920,85 @@ def edit_store(store_id):
     return render_template('store_edit.html', store_id=store_id, data=data)
 
 
+@app.route('/schedule/<store_id>', methods=['POST'])
+def set_schedule(store_id):
+    data = request.get_json(silent=True) or {}
+    interval_hours = data.get('interval_hours', 24)
+    step = data.get('step', 'crawl')
+    enabled = data.get('enabled', False)
+
+    sched = _get_scheduler()
+    if not sched:
+        return jsonify({'error': 'APScheduler not installed. Run: pip install apscheduler'}), 400
+
+    job_id = f'{store_id}_{step}'
+    if job_id in _scheduler_jobs:
+        try:
+            sched.remove_job(job_id)
+        except Exception:
+            pass
+        del _scheduler_jobs[job_id]
+
+    if enabled:
+        sched.add_job(
+            _schedule_run,
+            'interval',
+            hours=interval_hours,
+            args=[store_id, step],
+            id=job_id,
+            name=f'{store_id}/{step}',
+            replace_existing=True,
+        )
+        _scheduler_jobs[job_id] = step
+        add_log(f'Đã lên lịch: {store_id}/{step} mỗi {interval_hours}h')
+
+    return jsonify({
+        'status': 'scheduled' if enabled else 'unscheduled',
+        'job_id': job_id,
+        'enabled': enabled,
+        'interval_hours': interval_hours,
+    })
+
+
+@app.route('/schedule/<store_id>', methods=['GET'])
+def get_schedule(store_id):
+    sched = _get_scheduler()
+    jobs = []
+    if sched:
+        for job in sched.get_jobs():
+            if job.name.startswith(f'{store_id}/'):
+                next_run = job.next_run_time.isoformat() if job.next_run_time else None
+                jobs.append({
+                    'id': job.id,
+                    'name': job.name,
+                    'next_run': next_run,
+                    'interval': str(job.trigger.interval) if hasattr(job.trigger, 'interval') else '',
+                })
+    return jsonify({'jobs': jobs})
+
+
+@app.route('/schedules', methods=['GET'])
+def list_schedules():
+    sched = _get_scheduler()
+    jobs = []
+    if sched:
+        for job in sched.get_jobs():
+            next_run = job.next_run_time.isoformat() if job.next_run_time else None
+            jobs.append({
+                'id': job.id,
+                'name': job.name,
+                'next_run': next_run,
+            })
+    return jsonify({'jobs': jobs})
+
+
+def _ensure_dirs():
+    for d in [BASE_DIR / 'data', BASE_DIR / 'config/stores', BASE_DIR / 'logs', BASE_DIR / 'assets/background_music']:
+        d.mkdir(parents=True, exist_ok=True)
+
+
 if __name__ == '__main__':
+    _ensure_dirs()
     print('=' * 60)
     print('  WEB UI - China Dropship to Shopee')
     print('  Open browser: http://localhost:5000')

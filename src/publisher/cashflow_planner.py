@@ -4,12 +4,13 @@ working capital needs for the next 7-14 days.
 Uses historical order data from Shopee, cost data from 1688/AliExpress, and
 configurable lead times to predict capital requirements.
 """
-import json
+import json, asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Optional
 from src.utils.logger import setup_logger
+from src.utils.exchange_rate import get_cny_vnd_rate, FALLBACK_RATE
 
 logger = setup_logger("cashflow_planner")
 
@@ -103,10 +104,8 @@ class CashFlowPlanner:
             final_price = float(pricing_item.get("final_price_vnd", price_vnd))
 
             # Margin info: cost = CNY→VND (no multiplier), receivable = selling price
-            import asyncio as _asyncio
-            from src.utils.exchange_rate import get_cny_vnd_rate, FALLBACK_RATE
             try:
-                rate = _asyncio.run(get_cny_vnd_rate())
+                rate = asyncio.run(get_cny_vnd_rate())
             except RuntimeError:
                 rate = FALLBACK_RATE
             cost_vnd = cost_cny * rate

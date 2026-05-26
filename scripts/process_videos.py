@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, sys, asyncio
+import json, sys, asyncio, argparse
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -24,12 +24,13 @@ async def _process_one(processor, prod, store_dir, pid):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python scripts/process_videos.py <store_id> [max_products]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Xu ly video product (download + resize)")
+    parser.add_argument("store_id", help="ID cua store")
+    parser.add_argument("--limit", type=int, default=999, help="Gioi han so sp xu ly")
+    args = parser.parse_args()
 
-    store_id = sys.argv[1]
-    max_items = int(sys.argv[2]) if len(sys.argv) > 2 else 999
+    store_id = args.store_id
+    max_items = args.limit
     store_dir = Path("data") / store_id
 
     prod_path = store_dir / "products_with_images.json"
