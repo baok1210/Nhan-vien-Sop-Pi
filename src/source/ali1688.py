@@ -7,6 +7,13 @@ from src.utils.logger import setup_logger
 
 logger = setup_logger("1688_scraper")
 
+_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+]
+
 
 def extract_chrome_cookies(domain="1688.com"):
     local_app_data = os.environ.get("LOCALAPPDATA", "")
@@ -48,29 +55,30 @@ class Ali1688Scraper:
         self.proxy = config.get("proxy", "")
         self._session = curl_requests.Session()
         self._session.impersonate = "chrome120"
-        self._browser = None
+        self._browser_mgr = None
 
-        # Try to load Chrome cookies
-        self._cookies = extract_chrome_cookies()
-        if self._cookies:
-            logger.info(f"Đã tải {len(self._cookies)} cookie từ Chrome cho 1688")
+        # Load cookies: config cookies > Chrome cookies
+        config_cookies = config.get("cookies", {})
+        if config_cookies:
+            self._cookies = config_cookies
+            logger.info(f"Đã tải {len(self._cookies)} cookie từ config")
             self._session.cookies.update(self._cookies)
         else:
-            logger.warning(
-                "Không tìm thấy cookie 1688 trong Chrome. "
-                "Hãy đăng nhập 1688.com trong Chrome trước, hoặc đặt cookie thủ công trong config."
-            )
+            self._cookies = extract_chrome_cookies()
+            if self._cookies:
+                logger.info(f"Đã tải {len(self._cookies)} cookie từ Chrome cho 1688")
+                self._session.cookies.update(self._cookies)
+            else:
+                logger.warning(
+                    "Không tìm thấy cookie 1688. "
+                    "Hãy đăng nhập 1688.com trong Chrome, hoặc đặt cookie trong config."
+                )
 
     def _headers(self, referer=None):
         h = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/125.0.0.0 Safari/537.36"
-            ),
+            "User-Agent": random.choice(_USER_AGENTS),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "zh-CN,zh;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
         }
         if referer:
             h["Referer"] = referer
@@ -88,37 +96,45 @@ class Ali1688Scraper:
         url = f"{self.SEARCH_URL}?{urlencode(params)}"
         referer = f"{self.SEARCH_URL}?keywords={urlencode({'': keyword})[1:]}"
 
-        try:
-            resp = self._session.get(
-                url, headers=self._headers(referer), timeout=30
-            )
-            resp.raise_for_status()
-            html = resp.text
-            # Check if we got a CAPTCHA/anti-bot page
-            if len(html) < 5000 or "验证" in html[:2000] or "安全验证" in html[:2000]:
-                logger.warning(f"1688 trả về trang CAPTCHA/anti-bot cho '{keyword}', thử Playwright...")
-                return self._search_with_playwright(keyword, page)
-            return self._parse_products(html, keyword)
-        except Exception as e:
-            logger.error(f"Tìm kiếm 1688 thất bại cho '{keyword}' trang {page}: {e}")
-            return []
+        for attempt in range(3):
+            try:
+                resp = self._session.get(
+                    url, headers=self._headers(referer), timeout=30
+                )
+                resp.raise_for_status()
+                html = resp.text
+                if len(html) < 5000 or "验证" in html[:2000] or "安全验证" in html[:2000]:
+                    logger.warning(f"1688 CAPTCHA/anti-bot cho '{keyword}' (attempt {attempt+1})")
+                    if attempt < 2:
+                        time.sleep(random.uniform(5, 10) * (attempt + 1))
+                        continue
+                    return self._search_with_playwright(keyword, page)
+                return self._parse_products(html, keyword)
+            except Exception as e:
+                logger.error(f"1688 lỗi '{keyword}' trang {page} (attempt {attempt+1}): {e}")
+                if attempt < 2:
+                    time.sleep(random.uniform(5, 10) * (attempt + 1))
+                else:
+                    if "CAPTCHA" in str(e) or "captcha" in str(e):
+                        return self._search_with_playwright(keyword, page)
+        return []
 
     def _search_with_playwright(self, keyword: str, page: int = 1) -> list[ProductSource]:
         try:
             from src.source.browser import BrowserManager
-            bm = BrowserManager(headless=True, proxy=self.proxy or None)
-            bm.start()
-            ctx, page_obj = bm.new_page()
+            if self._browser_mgr is None:
+                self._browser_mgr = BrowserManager(headless=True, proxy=self.proxy or None)
+                self._browser_mgr.start()
+            import random as _r
+            ctx, page_obj = self._browser_mgr.new_page()
 
             params = {"keywords": keyword, "n": "y", "pageNum": page}
             url = f"{self.SEARCH_URL}?{urlencode(params)}"
             page_obj.goto(url, timeout=60000, wait_until="domcontentloaded")
-            time.sleep(3)
+            page_obj.wait_for_timeout(random.randint(3000, 5000))
             html = page_obj.content()
 
             ctx.close()
-            bm.stop()
-
             return self._parse_products(html, keyword)
         except Exception as e:
             logger.error(f"Playwright 1688 search failed: {e}")
@@ -377,3 +393,8 @@ class Ali1688Scraper:
     def close(self):
         if self._session:
             self._session.close()
+        if self._browser_mgr:
+            try:
+                self._browser_mgr.stop()
+            except Exception:
+                pass

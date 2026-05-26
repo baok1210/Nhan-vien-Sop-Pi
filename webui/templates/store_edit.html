@@ -188,14 +188,30 @@
     </div>
     <div style="margin-bottom:12px">
       <label style="display:block;margin-bottom:4px;font-weight:500">Cookies 1688 (dạng JSON từ Chrome)</label>
-      <textarea name="cookies_1688" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;min-height:60px;font-family:monospace;font-size:12px"
-        placeholder='[{"name":"xxx","value":"yyy"},...] - Copy từ Chrome F12 > Application > Cookies > 1688.com'>{% if data.get('sources', {}).get('1688', {}).get('cookies') %}{{ data.get('sources', {}).get('1688', {}).get('cookies')|tojson }}{% endif %}</textarea>
+      <textarea name="cookies_1688" id="cookies-1688" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;min-height:60px;font-family:monospace;font-size:12px"
+        placeholder='[{"name":"xxx","value":"yyy"},...] - Copy từ Chrome F12 > Application > Cookies > 1688.com'></textarea>
     </div>
     <div style="margin-bottom:12px">
       <label style="display:block;margin-bottom:4px;font-weight:500">Cookies AliExpress (tùy chọn, JSON từ Chrome)</label>
-      <textarea name="cookies_ae" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;min-height:60px;font-family:monospace;font-size:12px"
-        placeholder='[{"name":"xxx","value":"yyy"},...] - Copy từ Chrome F12 > Application > Cookies > aliexpress.com. Để trống nếu dùng Playwright.'>{% if data.get('sources', {}).get('aliexpress', {}).get('cookies') %}{{ data.get('sources', {}).get('aliexpress', {}).get('cookies')|tojson }}{% endif %}</textarea>
+      <textarea name="cookies_ae" id="cookies-ae" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;min-height:60px;font-family:monospace;font-size:12px"
+        placeholder='[{"name":"xxx","value":"yyy"},...] - Copy từ Chrome F12 > Application > Cookies > aliexpress.com. Để trống nếu dùng Playwright.'></textarea>
     </div>
+    <script>
+    window.addEventListener('load', function() {
+      try {
+        var ck1688 = {{ data.get('sources', {}).get('1688', {}).get('cookies', {})|tojson }};
+        if (ck1688 && Object.keys(ck1688).length > 0) {
+          document.getElementById('cookies-1688').value = JSON.stringify(ck1688, null, 2);
+        }
+      } catch(e) {}
+      try {
+        var ckae = {{ data.get('sources', {}).get('aliexpress', {}).get('cookies', {})|tojson }};
+        if (ckae && Object.keys(ckae).length > 0) {
+          document.getElementById('cookies-ae').value = JSON.stringify(ckae, null, 2);
+        }
+      } catch(e) {}
+    });
+    </script>
 
     <div class="flex" style="gap:8px;margin-top:16px">
       <button type="submit" class="btn btn-success">Lưu</button>

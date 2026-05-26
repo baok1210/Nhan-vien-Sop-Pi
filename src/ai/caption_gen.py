@@ -237,37 +237,36 @@ class CaptionGenerator:
         return result
 
     def _generate_hashtags(self, title_vi: str, category: str, words: list) -> list:
+        seen = set()
         hashtags = []
-        for w in words[:10]:
-            w_clean = w.strip(",.!?()[]{}")
-            if len(w_clean) > 2:
+        for w in words:
+            w_clean = w.strip(",.!?()[]{}").lower()
+            if len(w_clean) > 2 and w_clean not in seen:
+                seen.add(w_clean)
                 hashtags.append(f"#{w_clean}")
         if category:
             cat_words = category.lower().replace("&", "").split()
             for w in cat_words:
                 tag = f"#{w.strip()}"
-                if tag not in hashtags:
+                if tag not in seen:
+                    seen.add(tag)
                     hashtags.append(tag)
-        extra_tags = ["#hàngchấtlượng", "#muasamthongminh", "#dealhot", "#sanphamgiatot", "#giárẻ"]
-        for tag in extra_tags:
-            if tag not in hashtags:
+        extra = ["#muasamthongminh", "#dealhot", "#hangchatluong"]
+        for tag in extra:
+            if tag not in seen:
+                seen.add(tag)
                 hashtags.append(tag)
-        hashtags = hashtags[:15]
-        if not hashtags:
-            hashtags = ["#sanphamgiatot", "#muasamthongminh", "#dealhot", "#hàngchấtlượng", "#giárẻ"]
-        return hashtags
+        return hashtags[:self.num_hashtags]
 
     def _generate_description(self, title_vi: str, bullets: list, price_vnd: float) -> str:
         desc = f"{title_vi}\n\n"
-        desc += "🌟 **SẢN PHẨM CHẤT LƯỢNG CAO** 🌟\n\n"
-        desc += "📌 THÔNG TIN SẢN PHẨM:\n"
+        desc += "THONG TIN SAN PHAM:\n"
         for b in bullets:
-            desc += f"✅ {b}\n"
-        desc += f"\n💰 GIÁ: Chỉ từ {int(price_vnd):,}đ\n\n"
-        desc += "🛒 ĐẶT MUA NGAY hôm nay để nhận ưu đãi!\n"
-        desc += "🚚 Giao hàng nhanh toàn quốc\n"
-        desc += "🔄 Đổi trả trong 7 ngày nếu sản phẩm lỗi\n\n"
-        desc += "#muasamthongminh #dealhot #hàngchấtlượng"
+            desc += f"- {b}\n"
+        desc += f"\nGIA: {int(price_vnd):,}d\n\n"
+        desc += "Dat mua ngay hom nay de nhan uu dai!\n"
+        desc += "Giao hang nhanh toan quoc\n"
+        desc += "Doi tra trong 7 ngay neu san pham loi"
         return desc
 
     def _clean_title(self, title: str) -> str:

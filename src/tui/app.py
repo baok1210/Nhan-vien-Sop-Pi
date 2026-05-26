@@ -1070,11 +1070,8 @@ class StoreDetailScreen(Screen):
         store_cfg = self._store_cfg
         try:
             mgr = OrderManager(store_cfg, self.store_id)
-            result = await asyncio.get_event_loop().run_in_executor(None, mgr.sync_and_save)
-            orders = result.get("orders", [])
-            self.write_log(f"  {len(orders)} đơn hàng mới -> data/orders_to_fulfill.json")
-            if result.get("duplicates_skipped", 0):
-                self.write_log(f"  (bỏ qua {result['duplicates_skipped']} đơn trùng)")
+            count = await asyncio.get_event_loop().run_in_executor(None, mgr.sync)
+            self.write_log(f"  {count} đơn hàng mới -> data/orders_to_fulfill.json")
             mgr.close()
         except Exception as e:
             self.write_log(f"❌ Lỗi đồng bộ đơn: {e}")
@@ -1095,13 +1092,10 @@ class StoreDetailScreen(Screen):
             if report_path.exists():
                 with open(report_path, encoding="utf-8") as f:
                     pricing = json.load(f)
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: mgr.run_sale(pricing)
+            results = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: mgr.run(max_items=20)
             )
-            if result and result.get("registered"):
-                self.write_log(f"  ✅ Đã đăng ký {result['registered']} sản phẩm Flash Sale")
-            else:
-                self.write_log("  ⚠️ Không có sản phẩm nào được đăng ký")
+            self.write_log(f"  ✅ Đã đăng ký {len(results)} đợt Flash Sale")
             mgr.close()
         except Exception as e:
             self.write_log(f"❌ Lỗi Flash Sale: {e}")

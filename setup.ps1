@@ -65,15 +65,19 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  CAI DAT HOAN TAT!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Cach chay:"
-Write-Host "  .\venv\Scripts\activate  (kich hoat moi truong)"
-Write-Host "  python scripts\run.py     (mo giao dien)"
+Write-Host "Cach chay:" -ForegroundColor Yellow
+Write-Host "  .\venv\Scripts\activate        (kich hoat moi truong)"
+Write-Host "  start_web.bat                   (WEB UI tai http://localhost:5000)"
+Write-Host "  python scripts\run.py           (TUI terminal)"
 Write-Host ""
-Write-Host "Hoac chay tung buoc:"
-Write-Host "  python scripts\crawl_products.py"
-Write-Host "  python scripts\process_images.py"
-Write-Host "  python scripts\generate_captions.py"
-Write-Host "  python scripts\post_to_shopee.py"
+Write-Host "Hoac chay tung buoc CLI:" -ForegroundColor Yellow
+Write-Host "  python scripts\crawl_products.py <store_id>"
+Write-Host "  python scripts\process_images.py <store_id>"
+Write-Host "  python scripts\generate_captions.py <store_id>"
+Write-Host "  python scripts\post_to_shopee.py <store_id>"
+Write-Host ""
+Write-Host "Docker:" -ForegroundColor Yellow
+Write-Host "  docker compose up -d           (chay container tai port 5000)"
 Write-Host ""
 Write-Host "Can ho tro? Bao loi tai: https://github.com/anomalyco/opencode/issues"
 Write-Host ""
