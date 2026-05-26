@@ -1,4 +1,4 @@
-import json
+import copy, json
 from collections import Counter, defaultdict
 from pathlib import Path
 from src.classifier import NICHE_CATEGORIES, classify_products
@@ -51,13 +51,12 @@ def discover_niches(min_products: int = 3) -> list[dict]:
     if not pool:
         return []
 
-    # Re-classify all products in pool
-    pool = classify_products(pool)
-    save_pool(pool)
+    # Classify on a deep copy — don't mutate the original pool
+    classified = classify_products(copy.deepcopy(pool))
 
     # Group by category
     groups: dict[str, list[dict]] = defaultdict(list)
-    for p in pool:
+    for p in classified:
         groups[p["category"]].append(p)
 
     suggestions = []

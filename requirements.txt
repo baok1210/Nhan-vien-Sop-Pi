@@ -28,10 +28,13 @@ googletrans>=4.0.2
 apscheduler>=3.10
 
 # Database
-sqlite3  # built-in
+# sqlite3 is built-in, no pip install needed
 
 # Video Processing
 moviepy>=2.0
+
+# Web UI
+flask>=3.0
 
 # Dev
 python-dotenv>=1.0

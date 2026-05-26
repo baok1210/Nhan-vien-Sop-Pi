@@ -85,8 +85,8 @@ def cluster_products(
 
     max_k = min(max_clusters, n_docs // 2)
     k_range = range(2, max(2, max_k + 1))
-    if len(k_range) == 1:
-        k_range = range(2, min(4, n_docs))
+    if len(k_range) <= 1:
+        k_range = range(2, min(4, n_docs) + 1)
 
     try:
         best_k, best_score = _find_optimal_k(X, k_range)

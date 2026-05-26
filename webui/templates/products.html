@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex mb-12">
+  <a href="/" class="btn btn-sm" style="background:#eee">&larr; Về dashboard</a>
+  <h2>Sản phẩm: {{ store_id }}</h2>
+</div>
+
+{% if products %}
+  {% for p in products %}
+  <div class="card" style="padding:14px">
+    <div class="flex" style="justify-content:space-between">
+      <div>
+        <strong>{{ p.title_vi or p.title_cn or 'Không có tên' }}</strong><br>
+        <span class="muted">
+          Giá: {{ p.price_cny }}¥ / {{ '{:,}'.format(p.price_vnd|int) if p.price_vnd else '?' }}₫ |
+          {% if p.hashtags %}{{ p.hashtags[:5]|join(', ') }}{% endif %}
+        </span>
+      </div>
+      <div class="muted" style="text-align:right;font-size:12px">
+        {{ p.product_id }}<br>
+        {% if p.images_processed %}{{ p.images_processed|length }} ảnh{% endif %}
+      </div>
+    </div>
+    {% if p.bullet_points %}
+    <ul style="margin-top:6px;margin-left:16px;font-size:13px;color:#555">
+      {% for b in p.bullet_points[:3] %}<li>{{ b }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card text-center muted" style="padding:40px">
+  Chưa có sản phẩm. Chạy crawl trước.
+</div>
+{% endif %}
+{% endblock %}

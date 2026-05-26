@@ -1,4 +1,4 @@
-import json, re, logging, urllib.parse
+import asyncio, json, re, logging, urllib.parse
 from pathlib import Path
 from typing import Optional
 
@@ -297,7 +297,7 @@ def analyze_store_pricing(store_id: str) -> dict:
             "cost_vnd": cost_vnd, "current_price": current_price,
             "floor_price": floor_price,
             "lowest_competitor_price": lowest_price,
-            "target_price": int(lowest_price - COMPETITOR_OFFSET) if lowest_price else None,
+            "target_price": int(lowest_price - COMPETITOR_OFFSET) if lowest_price is not None else None,
             "final_price_vnd": final_price, "profitable": profitable,
         }
         report.append(entry)
@@ -322,6 +322,12 @@ def analyze_store_pricing(store_id: str) -> dict:
         f"{unprofitable_count} unprofitable"
     )
     return summary
+
+
+async def async_analyze_store_pricing(store_id: str) -> dict:
+    """Async wrapper for analyze_store_pricing — runs sync logic in executor."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, analyze_store_pricing, store_id)
 
 
 async def async_apply_dynamic_pricing(

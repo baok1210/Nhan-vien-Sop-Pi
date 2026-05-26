@@ -3,6 +3,7 @@ from urllib.parse import urlencode
 from curl_cffi import requests as curl_requests
 from src.models.product import ProductSource
 from src.utils.logger import setup_logger
+from src.source.browser import BrowserManager
 
 logger = setup_logger("aliexpress_scraper")
 
@@ -14,8 +15,19 @@ class AliExpressScraper:
         self.max_pages = config.get("max_pages", 3)
         self.delay = config.get("delay_seconds", 2)
         self.proxy = config.get("proxy")
-        self._session = curl_requests.Session()
-        self._session.impersonate = "chrome120"
+        self.cookies = config.get("cookies")
+        self._session = self._new_session()
+
+    def _new_session(self):
+        s = curl_requests.Session()
+        s.impersonate = "chrome120"
+        if self.proxy:
+            s.proxies = {"http": self.proxy, "https": self.proxy}
+        if self.cookies:
+            for c in self.cookies if isinstance(self.cookies, list) else [self.cookies]:
+                if isinstance(c, dict) and "name" in c and "value" in c:
+                    s.cookies.set(c["name"], c["value"])
+        return s
 
     def _headers(self):
         return {
@@ -33,35 +45,152 @@ class AliExpressScraper:
         params = {kw: v for kw, v in {"SearchText": keyword, "page": page}.items() if v}
         url = f"{self.SEARCH_URL}?{urlencode(params)}"
 
-        try:
-            resp = self._session.get(url, headers=self._headers(), timeout=30)
-            resp.raise_for_status()
-            html = resp.text
-            # Detect x5sec punishment page (typically ~2KB of redirect JS)
-            if len(html) < 10000:
-                logger.warning(f"AliExpress returned anti-bot page (x5sec) for '{keyword}'")
+        for attempt in range(3):
+            try:
+                if attempt > 0:
+                    time.sleep(random.uniform(2.0 * attempt, 5.0 * attempt))
+                    self._session = self._new_session()
+                resp = self._session.get(url, headers=self._headers(), timeout=30)
+                resp.raise_for_status()
+                html = resp.text
+
+                anti_bot_signals = [
+                    len(html) < 10000,
+                    "x5sec" in html[:5000],
+                    "verify" in html[:3000].lower(),
+                    "机器人" in html[:3000],
+                    "captcha" in html[:3000].lower(),
+                ]
+                if any(anti_bot_signals):
+                    logger.warning(f"AliExpress chặn anti-bot (attempt {attempt+1}) cho '{keyword}'")
+                    continue
+
+                products = self._parse_products(html)
+                if products:
+                    logger.info(f"AliExpress: {len(products)} sp từ '{keyword}' trang {page}")
+                    return products
+                logger.info(f"AliExpress: 0 sp từ '{keyword}' trang {page}")
                 return []
-            return self._parse_products(html)
-        except Exception as e:
-            logger.error(f"Search failed for '{keyword}' page {page}: {e}")
-            return []
+            except Exception as e:
+                logger.error(f"AliExpress lỗi cho '{keyword}' trang {page} (attempt {attempt+1}): {e}")
+                continue
+        # Fallback to Playwright (real browser bypasses x5sec)
+        logger.warning(f"curl_cffi failed, trying Playwright for '{keyword}'...")
+        return self._search_with_playwright(keyword, page)
 
     def _parse_products(self, html: str) -> list[ProductSource]:
         products = []
-        script_data = self._extract_item_list(html)
-        if script_data:
-            for item in script_data:
-                try:
-                    product = self._parse_item(item)
-                    if product:
-                        products.append(product)
-                except Exception as e:
-                    logger.warning(f"Parse item failed: {e}")
+
+        extractors = [
+            self._extract_from_window_state,
+            self._extract_from_html_scripts,
+            self._extract_item_list,
+            self._extract_from_inline_json,
+        ]
+
+        for extractor in extractors:
+            try:
+                data = extractor(html)
+                if data:
+                    for item in data:
+                        try:
+                            product = self._parse_item(item)
+                            if product:
+                                products.append(product)
+                        except Exception as e:
+                            logger.warning(f"Parse item failed: {e}")
+                    if products:
+                        break
+            except Exception:
+                continue
 
         if not products:
             products = self._parse_from_html(html)
 
         return products
+
+    def _extract_from_window_state(self, html: str) -> list[dict] | None:
+        """Extract product list from window.__INITIAL_STATE__ or __RENDER_DATA__."""
+        for pattern in [
+            r'window\.__INITIAL_STATE__\s*=\s*(\{.*?\});',
+            r'window\.__RENDER_DATA__\s*=\s*(\{.*?\});',
+            r'window\.__NUXT__\s*=\s*(\{.*?\});',
+        ]:
+            m = re.search(pattern, html, re.DOTALL)
+            if not m:
+                continue
+            try:
+                state = json.loads(m.group(1))
+                # Navigate common paths to find product listing
+                for path in [
+                    ["listing", "items", "product"],
+                    ["productList", "items"],
+                    ["data", "items"],
+                    ["props", "pageProps", "items"],
+                    ["items"],
+                ]:
+                    obj = state
+                    for key in path:
+                        if isinstance(obj, dict):
+                            obj = obj.get(key, {})
+                        else:
+                            break
+                    if isinstance(obj, list) and len(obj) > 0:
+                        items = [i for i in obj if i.get("productId") or i.get("itemId")]
+                        if items:
+                            logger.info(f"Found {len(items)} products via window state ({pattern[:30]}...)")
+                            return items
+            except (json.JSONDecodeError, ValueError, TypeError):
+                continue
+        return None
+
+    def _extract_from_html_scripts(self, html: str) -> list[dict] | None:
+        """Extract from <script type=\"application/json\"> tags or data: JSON blocks."""
+        # Try <script type="application/json"> tags
+        for m in re.finditer(
+            r'<script[^>]*type=["\']application/json["\'][^>]*>(.*?)</script>',
+            html, re.DOTALL,
+        ):
+            try:
+                data = json.loads(m.group(1).strip())
+                if isinstance(data, list):
+                    items = [i for i in data if i.get("productId") or i.get("itemId")]
+                    if items:
+                        logger.info(f"Found {len(items)} products via JSON script tags")
+                        return items
+                elif isinstance(data, dict):
+                    # Search nested for product arrays
+                    items = self._find_product_list(data)
+                    if items:
+                        return items
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+        # Try galite data (AliExpress analytics embed)
+        for m in re.finditer(r'galite\s*=\s*(\{.*?\})\s*;', html, re.DOTALL):
+            try:
+                data = json.loads(m.group(1))
+                items = self._find_product_list(data)
+                if items:
+                    logger.info(f"Found {len(items)} products via galite data")
+                    return items
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+        return None
+
+    def _find_product_list(self, obj: dict) -> list[dict] | None:
+        """Recursively search a nested dict for arrays of products."""
+        if isinstance(obj, dict):
+            for key, val in obj.items():
+                if isinstance(val, list) and len(val) > 0:
+                    sample = val[0]
+                    if isinstance(sample, dict) and ("productId" in sample or "itemId" in sample):
+                        return val
+                result = self._find_product_list(val) if isinstance(val, dict) else None
+                if result:
+                    return result
+        return None
 
     def _extract_item_list(self, html: str) -> list[dict] | None:
         """Extract product data from embedded JSON in script tags."""
@@ -97,11 +226,28 @@ class AliExpressScraper:
             image_url = img_data.get("imgUrl", "")
 
         price = 0.0
-        prices_data = item.get("prices", item.get("pricing", {}))
-        if isinstance(prices_data, dict):
-            price = float(prices_data.get("minPrice", {}).get("value", 0))
-        elif isinstance(prices_data, list) and prices_data:
-            price = float(prices_data[0].get("value", 0))
+        # Try flat price keys first
+        try:
+            raw = item.get("price") or item.get("minPrice") or item.get("salePrice") or item.get("originalPrice")
+            if raw:
+                price = float(re.sub(r'[^\d.]', '', str(raw)))
+        except (TypeError, ValueError, AttributeError): pass
+        if not price:
+            prices_data = item.get("prices", item.get("pricing", {}))
+            if isinstance(prices_data, dict):
+                mp = prices_data.get("minPrice", prices_data.get("min_price", {}))
+                if isinstance(mp, dict):
+                    price = float(mp.get("value", 0))
+                else:
+                    try: price = float(mp)
+                    except (TypeError, ValueError): pass
+            elif isinstance(prices_data, list) and prices_data:
+                p0 = prices_data[0]
+                if isinstance(p0, dict):
+                    price = float(p0.get("value") or p0.get("price") or 0)
+                else:
+                    try: price = float(p0)
+                    except (TypeError, ValueError): pass
 
         sales_count = 0
         trade = item.get("trade", item.get("sales", {}))
@@ -146,7 +292,16 @@ class AliExpressScraper:
         products = []
 
         # Try multiple card selectors (AliExpress changes class names frequently)
-        for selector in [".search-item-card-wrapper-gallery", "[class*='product-item']", "[class*='card']", "[class*='list-item']"]:
+        cards = []
+        for selector in [
+            ".search-item-card-wrapper-gallery",
+            "[class*='product-item']",
+            "[class*='card']",
+            "[class*='list-item']",
+            "[class*='item']",
+            "div[data-role*='item']",
+            "[class*='product']",
+        ]:
             cards = sel.css(selector)
             if cards:
                 break
@@ -181,10 +336,10 @@ class AliExpressScraper:
                 price_el = card.css(ps)
                 if price_el:
                     price_text = "".join(price_el.css("*::text").getall()).strip()
-                    price_match = re.search(r'[\d,.]+', price_text.replace(",", ""))
+                    price_match = re.search(r'[\d]+(?:[\.,]\d+)?', price_text.replace(",", ""))
                     if price_match:
                         try:
-                            price = float(price_match.group().replace(",", ""))
+                            price = float(price_match.group())
                         except ValueError:
                             pass
                         break
@@ -241,12 +396,27 @@ class AliExpressScraper:
                                 img_url = "https:" + img_url
                         prices = item.get("prices", item.get("pricing", {}))
                         price = 0.0
-                        if isinstance(prices, dict):
-                            mp = prices.get("minPrice", prices.get("min_price", {}))
-                            if isinstance(mp, dict):
-                                price = float(mp.get("value", 0))
-                        elif isinstance(prices, list) and prices:
-                            price = float(prices[0].get("value", 0))
+                        # Try flat price keys first
+                        try:
+                            raw = item.get("price") or item.get("minPrice") or item.get("salePrice") or item.get("originalPrice")
+                            if raw:
+                                price = float(re.sub(r'[^\d.]', '', str(raw)))
+                        except (TypeError, ValueError, AttributeError): pass
+                        if not price:
+                            if isinstance(prices, dict):
+                                mp = prices.get("minPrice", prices.get("min_price", {}))
+                                if isinstance(mp, dict):
+                                    price = float(mp.get("value", 0))
+                                else:
+                                    try: price = float(mp)
+                                    except (TypeError, ValueError): pass
+                            elif isinstance(prices, list) and prices:
+                                p0 = prices[0]
+                                if isinstance(p0, dict):
+                                    price = float(p0.get("value") or p0.get("price") or 0)
+                                else:
+                                    try: price = float(p0)
+                                    except (TypeError, ValueError): pass
                         products.append(ProductSource(
                             id=pid, title_cn=title, price_cny=price,
                             original_price_cny=price, image_urls=[img_url] if img_url else [],
@@ -258,18 +428,45 @@ class AliExpressScraper:
                 continue
         return products
 
+    def _search_with_playwright(self, keyword: str, page: int = 1) -> list[ProductSource]:
+        """Fallback using Playwright (real browser) to bypass x5sec."""
+        proxy = self.proxy
+        try:
+            browser_mgr = BrowserManager(headless=True, proxy=proxy).start()
+            context, page_obj = browser_mgr.new_page()
+            params = {"SearchText": keyword, "page": page}
+            if page > 1: params["page"] = page
+            url = f"{self.SEARCH_URL}?{urlencode(params)}"
+            logger.info(f"Playwright loading {url}")
+            page_obj.goto(url, timeout=60000, wait_until="networkidle")
+            page_obj.wait_for_timeout(3000)
+            html = page_obj.content()
+            context.close()
+            browser_mgr.stop()
+            if len(html) > 10000:
+                logger.info(f"Playwright success: {len(html)} bytes")
+                return self._parse_products(html)
+            logger.warning(f"Playwright returned small page ({len(html)} bytes)")
+            return []
+        except Exception as e:
+            logger.error(f"Playwright AliExpress failed: {e}")
+            return []
+
     def crawl_by_keywords(self, keywords: list[str]) -> list[ProductSource]:
         all_products = []
         for kw in keywords:
-            logger.info(f"Crawling AliExpress: {kw}")
+            logger.info(f"Đang crawl AliExpress: {kw}")
             for page_num in range(1, self.max_pages + 1):
                 products = self.search(kw, page_num)
                 if not products:
+                    logger.info(f"  Hết sản phẩm ở trang {page_num}")
                     break
                 all_products.extend(products)
-                logger.info(f"  Page {page_num}: {len(products)} products")
-                time.sleep(self.delay + random.uniform(0.5, 1.5))
-        logger.info(f"AliExpress total: {len(all_products)} products")
+                logger.info(f"  Trang {page_num}: {len(products)} sản phẩm")
+                wait = self.delay + random.uniform(2, 5)
+                logger.info(f"  Chờ {wait:.0f}s trước request tiếp theo...")
+                time.sleep(wait)
+        logger.info(f"AliExpress tổng cộng: {len(all_products)} sản phẩm")
         return all_products
 
     def close(self):

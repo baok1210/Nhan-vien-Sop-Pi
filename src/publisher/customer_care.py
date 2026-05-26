@@ -130,7 +130,7 @@ class CustomerCareBot:
                 f"Chỉ trả về tin nhắn, không giải thích."
             )
             resp = client.models.generate_content(
-                model=ai_cfg.get("model", "gemini-2.0-flash"),
+                model=ai_cfg.get("model", "gemini-flash-latest"),
                 contents=prompt,
             )
             return resp.text.strip()

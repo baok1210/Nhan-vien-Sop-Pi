@@ -19,10 +19,9 @@ def load_config(path: str = "config/config.json") -> dict:
 
 
 def run_crawl(config: dict):
-    logger.info("=== PHASE 1: CRAWL ===")
+    logger.info("=== GIAI ĐOẠN 1: CRAWL SẢN PHẨM ===")
     all_products = []
 
-    # Source 1: 1688 (needs Chrome cookies)
     src_1688 = config.get("source", {}).get("1688", {})
     if src_1688.get("enabled", True):
         keywords = config.get("niche", {}).get("keywords_cn", [])
@@ -33,7 +32,6 @@ def run_crawl(config: dict):
             finally:
                 scraper.close()
 
-    # Source 2: AliExpress
     src_ae = config.get("source", {}).get("aliexpress", {})
     if src_ae.get("enabled", True):
         keywords = config.get("niche", {}).get("keywords_en", [])
@@ -65,12 +63,12 @@ def run_crawl(config: dict):
         })
     with open(data_dir / "products.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    logger.info(f"Saved {len(output)} products to data/raw/products.json")
+    logger.info(f"Đã lưu {len(output)} sản phẩm vào data/raw/products.json")
     return all_products
 
 
 def run_process_images(config: dict, products: list):
-    logger.info("=== PHASE 2: PROCESS IMAGES ===")
+    logger.info("=== GIAI ĐOẠN 2: XỬ LÝ ẢNH ===")
     processor = ImageProcessor(config)
     img_dir = Path("data/images")
     img_dir.mkdir(parents=True, exist_ok=True)
@@ -87,7 +85,7 @@ def run_process_images(config: dict, products: list):
 
 
 def run_generate_captions(config: dict, products: list):
-    logger.info("=== PHASE 3: GENERATE CAPTIONS ===")
+    logger.info("=== GIAI ĐOẠN 3: TẠO CAPTION TIẾNG VIỆT ===")
     gen = CaptionGenerator(config)
     niche = config.get("niche", {})
     multiplier = niche.get("price_multiplier", 2.5)
@@ -115,21 +113,38 @@ def run_generate_captions(config: dict, products: list):
 
 
 def run_publish(config: dict, products: list[ProductProcessed]):
-    logger.info("=== PHASE 4: PUBLISH TO SHOPEE ===")
+    shopee_cfg = config.get("shopee", {})
+    if not shopee_cfg.get("partner_id") or not shopee_cfg.get("partner_key"):
+        logger.warning("⚠️ BỎ QUA đăng Shopee: Chưa cấu hình Partner ID/Key. Chạy config_wizard.py để nhập.")
+        return
+    logger.info("=== GIAI ĐOẠN 4: ĐĂNG LÊN SHOPEE ===")
     client = ShopeeClient(config)
     for pp in products[:2]:
         sp = ShopeeProduct(product=pp, category_id=config.get("niche", {}).get("category_shopee_id", 0))
         item_id = client.add_item(sp)
         if item_id:
-            logger.info(f"Created Shopee item: {item_id}")
+            logger.info(f"Đã tạo Shopee item: {item_id}")
     client.close()
 
 
 if __name__ == "__main__":
     config_path = sys.argv[1] if len(sys.argv) > 1 else "config/config.json"
+    print("=" * 60)
+    print("  CHINA DROPSHIP TO SHOPEE - Pipeline tự động")
+    print("=" * 60)
+
+    if not Path(config_path).exists():
+        print(f"\n❌ Không tìm thấy file cấu hình: {config_path}")
+        print("   Chạy lệnh sau để tạo cấu hình:")
+        print(f"   python scripts/config_wizard.py")
+        sys.exit(1)
+
     config = load_config(config_path)
 
     products = run_crawl(config)
-    run_process_images(config, products)
-    processed = run_generate_captions(config, products)
-    run_publish(config, processed)
+    if products:
+        run_process_images(config, products)
+        processed = run_generate_captions(config, products)
+        run_publish(config, processed)
+    else:
+        logger.warning("Không có sản phẩm nào. Kiểm tra cookies 1688 và kết nối mạng.")

@@ -32,7 +32,20 @@ class ImageProcessor:
         self.wm_opacity = wm.get("opacity", 80)
         self.wm_size_ratio = wm.get("size_ratio", 0.08)
 
-    async def download_images(
+    def download_images(
+        self, urls: list[str], output_dir: str, product_id: str
+    ) -> list[str]:
+        try:
+            loop = asyncio.get_running_loop()
+            return asyncio.run_coroutine_threadsafe(
+                self._download_images_async(urls, output_dir, product_id), loop
+            ).result()
+        except RuntimeError:
+            return asyncio.run(
+                self._download_images_async(urls, output_dir, product_id)
+            )
+
+    async def _download_images_async(
         self, urls: list[str], output_dir: str, product_id: str
     ) -> list[str]:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -44,7 +57,6 @@ class ImageProcessor:
 
         tasks = []
         for i, url in enumerate(urls[: self.max_images]):
-            # Extract file extension from URL, default to jpg if path has no proper ext
             path_part = url.split("?")[0].split("#")[0]
             dot = path_part.rfind(".")
             ext = path_part[dot+1:] if dot >= 0 and "/" not in path_part[dot+1:] else "jpg"

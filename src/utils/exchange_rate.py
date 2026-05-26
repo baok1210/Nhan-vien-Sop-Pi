@@ -98,9 +98,14 @@ async def async_calculate_final_price(cny_price: float, multiplier: float = 2.5)
 def calculate_final_price(cny_price: float, multiplier: float = 2.5) -> int:
     """Sync version: calculate final VND price using live rate + multiplier.
     Rounds up to nearest 1000 VND.
+    Falls back to cached rate, then FALLBACK_RATE if fetch fails.
     """
     try:
-        rate = asyncio.run(get_cny_vnd_rate())
+        loop = asyncio.get_running_loop()
+        # Already in an async context — can't asyncio.run(), try cache
+        cached = _read_cache()
+        rate = cached if cached is not None else FALLBACK_RATE
     except RuntimeError:
-        rate = FALLBACK_RATE
+        # No running loop — safe to use asyncio.run()
+        rate = asyncio.run(get_cny_vnd_rate())
     return _round_price(cny_price * rate * multiplier)

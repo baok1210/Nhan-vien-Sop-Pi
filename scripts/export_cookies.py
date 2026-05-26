@@ -98,9 +98,10 @@ def save_netscape(cookies: dict, domain: str, path: str):
 
 def main():
     print("=" * 60)
-    print("CHROME COOKIE EXPORTER")
+    print("XUẤT COOKIE CHROME")
     print("=" * 60)
-    print("Close Chrome completely before running!")
+    print("⚠️  ĐÓNG Chrome hoàn toàn trước khi chạy!")
+    print("   (Nếu Chrome đang mở, cookie database sẽ bị khóa)")
     print()
 
     for target, domains in DOMAINS.items():
@@ -111,24 +112,20 @@ def main():
             out_json = Path(f"config/{target}_cookies.json")
             with open(out_json, "w", encoding="utf-8") as f:
                 json.dump(cookies, f, ensure_ascii=False, indent=2)
-            logger.info(f"Saved: {out_json} ({len(cookies)} cookies)")
+            logger.info(f"Đã lưu: {out_json} ({len(cookies)} cookies)")
 
             out_netscape = Path(f"config/{target}_cookies.txt")
             save_netscape(cookies, domains[0], str(out_netscape))
-            logger.info(f"Saved: {out_netscape} ({len(cookies)} cookies)")
+            logger.info(f"Đã lưu: {out_netscape} ({len(cookies)} cookies)")
 
-            print(f"\n  Export complete. Files saved to config/")
-            if target == "shopee":
-                print(f"\n  To use these cookies in your store config:")
-                print(f"  1. Copy shopee_cookies.json content")
-                print(f"  2. Add it to config/stores/<store_id>.json under shopee.cookies:")
+            print(f"\n  ✅ Xuất thành công. File lưu tại thư mục config/")
             if target == "1688":
-                print(f"\n  1688 scraper auto-loads from config/1688_cookies.json")
+                print(f"\n  1688 scraper sẽ tự động tải cookies từ file này.")
         else:
-            print(f"  No cookies found for {target}")
-            print(f"  Make sure you're logged into {target} in Chrome.")
+            print(f"  ❌ Không tìm thấy cookies cho {target}")
+            print(f"  Hãy đảm bảo bạn đã đăng nhập {target} trong Chrome trước.")
 
-    print("\nDone.")
+    print("\nHoàn tất.")
 
 
 if __name__ == "__main__":

@@ -48,16 +48,17 @@ class Ali1688Scraper:
         self.proxy = config.get("proxy", "")
         self._session = curl_requests.Session()
         self._session.impersonate = "chrome120"
+        self._browser = None
 
         # Try to load Chrome cookies
         self._cookies = extract_chrome_cookies()
         if self._cookies:
-            logger.info(f"Loaded {len(self._cookies)} cookies from Chrome for 1688")
+            logger.info(f"Đã tải {len(self._cookies)} cookie từ Chrome cho 1688")
             self._session.cookies.update(self._cookies)
         else:
             logger.warning(
-                "No 1688 cookies found in Chrome. "
-                "Login to 1688.com in Chrome first, or set cookies manually."
+                "Không tìm thấy cookie 1688 trong Chrome. "
+                "Hãy đăng nhập 1688.com trong Chrome trước, hoặc đặt cookie thủ công trong config."
             )
 
     def _headers(self, referer=None):
@@ -92,15 +93,40 @@ class Ali1688Scraper:
                 url, headers=self._headers(referer), timeout=30
             )
             resp.raise_for_status()
-            return self._parse_products(resp.text, keyword)
+            html = resp.text
+            # Check if we got a CAPTCHA/anti-bot page
+            if len(html) < 5000 or "验证" in html[:2000] or "安全验证" in html[:2000]:
+                logger.warning(f"1688 trả về trang CAPTCHA/anti-bot cho '{keyword}', thử Playwright...")
+                return self._search_with_playwright(keyword, page)
+            return self._parse_products(html, keyword)
         except Exception as e:
-            logger.error(f"Search failed for '{keyword}' page {page}: {e}")
+            logger.error(f"Tìm kiếm 1688 thất bại cho '{keyword}' trang {page}: {e}")
+            return []
+
+    def _search_with_playwright(self, keyword: str, page: int = 1) -> list[ProductSource]:
+        try:
+            from src.source.browser import BrowserManager
+            bm = BrowserManager(headless=True, proxy=self.proxy or None)
+            bm.start()
+            ctx, page_obj = bm.new_page()
+
+            params = {"keywords": keyword, "n": "y", "pageNum": page}
+            url = f"{self.SEARCH_URL}?{urlencode(params)}"
+            page_obj.goto(url, timeout=60000, wait_until="domcontentloaded")
+            time.sleep(3)
+            html = page_obj.content()
+
+            ctx.close()
+            bm.stop()
+
+            return self._parse_products(html, keyword)
+        except Exception as e:
+            logger.error(f"Playwright 1688 search failed: {e}")
             return []
 
     def _parse_products(self, html: str, keyword: str = "") -> list[ProductSource]:
         products = []
 
-        # Try embedded JSON data (similar to AliExpress pattern)
         json_products = self._extract_json_data(html)
         if json_products:
             for item in json_products:
@@ -111,26 +137,106 @@ class Ali1688Scraper:
                 except Exception as e:
                     logger.warning(f"Parse 1688 JSON item failed: {e}")
 
-        # Fallback: parse HTML for offer links and basic info
+        if not products:
+            products = self._extract_offer_list(html)
+
         if not products:
             products = self._parse_from_html(html)
 
         return products
 
     def _extract_json_data(self, html: str) -> list[dict] | None:
-        for m in re.finditer(r'"content"\s*:\s*(\[.*?\])', html, re.DOTALL):
-            snippet = m.group(1)
-            if "offerId" not in snippet:
-                continue
+        # Strategy 1: window.__NUXT__ state
+        m = re.search(r'window\.__NUXT__\s*=\s*(\{.*?\});', html, re.DOTALL)
+        if m:
             try:
-                content = json.loads(snippet)
-                if isinstance(content, list):
-                    items = [c for c in content if "offerId" in c]
+                data = json.loads(m.group(1))
+                offers = self._deep_find_offers(data)
+                if offers:
+                    logger.info(f"Tìm thấy {len(offers)} sản phẩm từ __NUXT__")
+                    return offers
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 2: iDetailData or offerList patterns
+        for pattern in [
+            r'"offerList"\s*:\s*(\[.*?\])', r'"iDetailData"\s*:\s*(\[.*?\])',
+            r'"data"\s*:\s*(\[.*?\])\s*,\s*"page',
+            r'"data"\s*:\s*(\[.*?\])\s*}\s*\)',
+        ]:
+            m = re.search(pattern, html, re.DOTALL)
+            if m:
+                try:
+                    data = json.loads(m.group(1))
+                    if isinstance(data, list) and len(data) > 0:
+                        items = [d for d in data if isinstance(d, dict) and ("offerId" in d or "productId" in d)]
+                        if items:
+                            return items
+                except json.JSONDecodeError:
+                    continue
+
+        # Strategy 3: broad JSON content search
+        for m in re.finditer(r'(?:\[|\{)\s*"[^"]*"(?:\s*:\s*[^,}]+,?\s*){3,}', html[:500000], re.DOTALL):
+            try:
+                content = json.loads("{" + m.group() + "}")
+                if isinstance(content, dict):
+                    items = self._deep_find_offers(content)
                     if items:
                         return items
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, ValueError):
                 continue
+
         return None
+
+    def _deep_find_offers(self, obj: dict, depth: int = 0) -> list[dict] | None:
+        if depth > 5:
+            return None
+        if isinstance(obj, dict):
+            for key in ("offerList", "iDetailData", "items", "data", "result", "list"):
+                val = obj.get(key)
+                if isinstance(val, list) and len(val) > 0:
+                    sample = val[0]
+                    if isinstance(sample, dict) and ("offerId" in sample or "productId" in sample or "subject" in sample):
+                        return val
+                result = self._deep_find_offers(val, depth + 1) if isinstance(val, dict) else None
+                if result:
+                    return result
+            for key, val in obj.items():
+                if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
+                    if any(k in val[0] for k in ("offerId", "productId", "subject")):
+                        return val
+        return None
+
+    def _extract_offer_list(self, html: str) -> list[ProductSource]:
+        products = []
+        # Parse offer card HTML structure
+        import re as _re
+        # Look for offer-card patterns in 1688 HTML
+        cards = _re.findall(
+            r'<div[^>]*class="[^"]*offer-card[^"]*"[^>]*>.*?</div>\s*</div>\s*</div>',
+            html[:500000], _re.DOTALL | _re.IGNORECASE
+        )
+        if not cards:
+            cards = _re.findall(
+                r'<div[^>]*data-offer-id="(\d+)"[^>]*>.*?</div>\s*</div>',
+                html[:500000], _re.DOTALL
+            )
+            if cards:
+                for card_html in cards:
+                    pid_m = _re.search(r'data-offer-id="(\d+)"', card_html)
+                    title_m = _re.search(r'title="([^"]+)"', card_html)
+                    price_m = _re.search(r'price[^"]*"[^>]*>([\d.]+)', card_html)
+                    img_m = _re.search(r'<img[^>]+src="([^"]+)"', card_html)
+                    products.append(ProductSource(
+                        id=pid_m.group(1) if pid_m else "",
+                        title_cn=title_m.group(1) if title_m else "",
+                        price_cny=float(price_m.group(1)) if price_m else 0,
+                        original_price_cny=float(price_m.group(1)) if price_m else 0,
+                        image_urls=[img_m.group(1)] if img_m else [],
+                        description_cn="", category_name_cn="",
+                        platform="1688", is_dropship=self.dropship_only,
+                    ))
+        return products
 
     def _parse_json_item(self, item: dict) -> ProductSource | None:
         oid = str(item.get("offerId") or item.get("productId") or "")
@@ -138,8 +244,16 @@ class Ali1688Scraper:
             return None
 
         title = item.get("subject", item.get("title", ""))
-        price = float(item.get("price", item.get("offerPrice", 0)))
-        orig_price = float(item.get("originalPrice", price))
+        raw_price = item.get("price", item.get("offerPrice", 0))
+        if isinstance(raw_price, str):
+            raw_price = _re.sub(r'[^\d.]', '', raw_price)
+        try: price = float(raw_price)
+        except (TypeError, ValueError): price = 0.0
+        raw_orig = item.get("originalPrice", price)
+        if isinstance(raw_orig, str):
+            raw_orig = _re.sub(r'[^\d.]', '', raw_orig)
+        try: orig_price = float(raw_orig)
+        except (TypeError, ValueError): orig_price = price
 
         imgs = item.get("imageList", item.get("images", []))
         if isinstance(imgs, str):
@@ -196,11 +310,23 @@ class Ali1688Scraper:
                 if parent is not None:
                     text = (parent.text or "").strip()
 
+            price = 0.0
+            card_html = link.root.getparent().text_content() if link.root.getparent() is not None else ""
+            price_m = _re.search(r'price[^"]*"[^>]*>([\d.]+)', card_html)
+            if price_m:
+                try: price = float(price_m.group(1))
+                except ValueError: pass
+            if not price:
+                price_m2 = _re.search(r'([\d]+(?:\.[\d]+)?)\s*(?:元|¥)', text + " " + card_html)
+                if price_m2:
+                    try: price = float(price_m2.group(1))
+                    except ValueError: pass
+
             products.append(ProductSource(
                 id=id_match.group(1),
                 title_cn=text,
-                price_cny=0,
-                original_price_cny=0,
+                price_cny=price,
+                original_price_cny=price,
                 image_urls=[],
                 description_cn="",
                 category_name_cn="",

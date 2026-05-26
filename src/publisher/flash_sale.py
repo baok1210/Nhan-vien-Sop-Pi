@@ -57,6 +57,19 @@ class FlashSaleManager:
             logger.error(f"Failed to load pricing report: {e}")
             return []
 
+    def load_published(self) -> dict[str, str]:
+        path = self.store_dir / "published.json"
+        if not path.exists():
+            return {}
+        try:
+            with open(path, encoding="utf-8") as f:
+                items = json.load(f)
+            if isinstance(items, list):
+                return {it.get("product_id", ""): str(it.get("shopee_item_id", "")) for it in items if it.get("shopee_item_id")}
+            return {}
+        except Exception:
+            return {}
+
     def load_captions(self) -> list[dict]:
         path = self.store_dir / "captions.json"
         if not path.exists():
@@ -79,18 +92,21 @@ class FlashSaleManager:
     def select_candidates(self, max_items: int = 20) -> list[dict]:
         pricing = self.load_pricing_report()
         captions = self.load_captions()
+        published_map = self.load_published()
         caption_map = {c.get("product_id", ""): c for c in captions}
 
         candidates = []
         for p in pricing:
             pid = p.get("product_id", "")
             cap = caption_map.get(pid, {})
+            shopee_item_id = published_map.get(pid, "")
             flash_price, actual_pct = self._calc_flash_price(
                 p.get("final_price_vnd", p.get("current_price", 0)),
                 p.get("floor_price", 0),
             )
             candidates.append({
                 "product_id": pid,
+                "shopee_item_id": shopee_item_id,
                 "title_vi": cap.get("title_vi", ""),
                 "original_price": int(p.get("final_price_vnd", 0)),
                 "floor_price": int(p.get("floor_price", 0)),
@@ -136,7 +152,7 @@ class FlashSaleManager:
         item_list = []
         for it in items:
             entry = {
-                "item_id": int(it.get("product_id", 0)),
+                "item_id": int(it.get("shopee_item_id", it.get("product_id", 0))),
                 "flash_sale_price": it.get("flash_sale_price", 0),
                 "flash_sale_stock": it.get("stock", 50),
                 "purchase_limit": it.get("purchase_limit", 2),

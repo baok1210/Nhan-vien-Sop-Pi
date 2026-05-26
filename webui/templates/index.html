@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex mb-12">
+  <h2>Dashboard</h2>
+  <span class="muted">Quản lý và chạy pipeline dropship</span>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Hướng dẫn nhanh</h3>
+    <ol style="margin-left:18px;line-height:2">
+      <li><strong>Chọn store</strong> bên dưới</li>
+      <li>Bấm <span class="btn btn-sm btn-primary">Crawl</span> để lấy sản phẩm</li>
+      <li>Bấm <span class="btn btn-sm btn-success">Xử lý ảnh</span></li>
+      <li>Bấm <span class="btn btn-sm btn-warning">Tạo caption</span></li>
+      <li>Bấm <span class="btn btn-sm btn-danger">Đăng Shopee</span></li>
+    </ol>
+  </div>
+  <div class="card">
+    <h3>Nhật ký hệ thống</h3>
+    <div id="status-text" class="muted">Đang chờ...</div>
+    <div class="log-box" id="log-box"></div>
+  </div>
+</div>
+
+<div class="flex mb-12" style="justify-content:space-between">
+  <h3>Danh sách store</h3>
+  <button class="btn btn-success" onclick="showAddStore()">+ Thêm store mới</button>
+</div>
+
+{% if stores %}
+  {% for s in stores %}
+  <div class="card" id="store-{{ s.id }}" data-crawl-max-pages-1688="{{ s.crawl_max_pages_1688 }}" data-crawl-proxy="{{ s.crawl_proxy }}"
+    data-ai-provider="{{ s.ai_provider }}" data-ai-api-key="{{ s.ai_api_key }}" data-ai-model="{{ s.ai_model }}"
+    data-ai-language="{{ s.ai_language }}" data-ai-tone="{{ s.ai_tone }}" data-ai-max-title="{{ s.ai_max_title }}" data-ai-num-hashtags="{{ s.ai_num_hashtags }}">
+    <div class="flex" style="justify-content:space-between">
+      <div>
+        <span class="store-name">{{ s.name }}</span>
+        {% if s.has_products %}<span class="status-dot green" title="Đã crawl"></span>{% endif %}
+        {% if s.has_images %}<span class="status-dot yellow" title="Đã xử lý ảnh"></span>{% endif %}
+        {% if s.has_captions %}<span class="status-dot green" title="Đã tạo caption"></span>{% endif %}
+      </div>
+      <div class="flex">
+        <a href="/store/{{ s.id }}/edit" class="btn btn-sm" style="background:#eee">Sửa</a>
+        <a href="/products/{{ s.id }}" class="btn btn-sm" style="background:#eee">Xem SP ({{ s.product_count or '?' }})</a>
+        <button class="btn btn-sm btn-danger" onclick="deleteStore('{{ s.id }}')">Xóa</button>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-sm btn-primary" onclick="openStepConfig('{{ s.id }}','crawl')" {{ 'disabled' if running }} title="Crawl sản phẩm từ AliExpress và 1688 theo từ khóa">1. Crawl</button>
+      <button class="btn btn-sm btn-success" onclick="openStepConfig('{{ s.id }}','images')" {{ 'disabled' if running or not s.has_products }} title="Tải xuống và xử lý ảnh (xóa nền, resize, watermark)">2. Ảnh</button>
+      <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','video')" {{ 'disabled' if running or not s.has_products }} style="background:#e8f4fd" title="Tải xuống và ghép nhạc nền cho video sản phẩm">3. Video</button>
+      <button class="btn btn-sm btn-warning" onclick="openStepConfig('{{ s.id }}','caption')" {{ 'disabled' if running or not s.has_images }} title="Tạo mô tả, bullet points, hashtag cho sản phẩm">4. Caption</button>
+      <button class="btn btn-sm btn-danger" onclick="openStepConfig('{{ s.id }}','publish')" {{ 'disabled' if running or not s.has_captions }} title="Đăng sản phẩm lên Shopee">5. Đăng</button>
+    </div>
+    <div class="btn-group" style="margin-top:6px">
+      <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','pricing')" {{ 'disabled' if running or not s.has_captions }} style="background:#fef3e2" title="Phân tích giá bán và lợi nhuận theo đối thủ">Giá</button>
+      <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','orders')" {{ 'disabled' if running }} style="background:#e8f5e9" title="Đồng bộ đơn hàng từ Shopee">Đơn hàng</button>
+      <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','flashsale')" {{ 'disabled' if running or not s.has_captions }} style="background:#fce4ec" title="Tạo chiến dịch flash sale trên Shopee">Flash sale</button>
+      <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','cashflow')" {{ 'disabled' if running }} style="background:#f3e5f5" title="Dự báo dòng tiền và lợi nhuận">Dòng tiền</button>
+      <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','trends')" {{ 'disabled' if running }} style="background:#e0f2f1" title="Quét từ khóa hot và phát hiện trend spike">Trend</button>
+      <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','virtualhub')" {{ 'disabled' if running }} style="background:#fff8e1" title="Tự động map mã vận đơn 1688 sang đơn Shopee">Vận đơn</button>
+      <button class="btn btn-sm" onclick="openStepConfig('{{ s.id }}','customercare')" {{ 'disabled' if running }} style="background:#fce4ec" title="Gửi tin nhắn chăm sóc KH tự động">CSKH</button>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card text-center muted" style="padding:40px">
+  Chưa có store nào. Bấm "+ Thêm store mới" bên trên.
+</div>
+{% endif %}
+
+<!-- Add Store Modal -->
+<div id="add-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999">
+  <div style="background:#fff;max-width:500px;margin:80px auto;padding:24px;border-radius:10px">
+    <h3 style="margin-bottom:16px">Thêm store mới</h3>
+    <form onsubmit="addStore(event)">
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;font-weight:500">Tên store</label>
+        <input name="name" id="new-name" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" placeholder="VD: Phụ kiện thú cưng" required>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;font-weight:500">Từ khóa tiếng Việt</label>
+        <input name="kw_vn" id="new-kw-vn" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" placeholder="VD: đồ chơi cho mèo, phụ kiện chó, đồ dùng thú cưng">
+      </div>
+      <div style="margin-bottom:12px">
+        <button type="button" class="btn btn-sm btn-primary" onclick="autoTranslateNew()">Dịch tự động sang CN + EN</button>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;font-weight:500">Từ khóa tiếng Trung (tự động dịch)</label>
+        <input name="kw_cn" id="new-kw-cn" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" readonly>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;font-weight:500">Từ khóa tiếng Anh (tự động dịch)</label>
+        <input name="kw_en" id="new-kw-en" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" readonly>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;font-weight:500">Hệ số giá</label>
+        <input name="price_multiplier" type="number" step="0.1" min="1" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" value="2.5" placeholder="2.5 = giá CNY * 2.5">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="display:block;margin-bottom:4px;font-weight:500">ID (để trống để tự động sinh)</label>
+        <input name="store_id" id="new-id" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" placeholder="Tự động sinh từ tên store">
+      </div>
+      <div class="flex" style="justify-content:flex-end;gap:8px">
+        <button type="button" class="btn" style="background:#eee" onclick="closeAddStore()">Hủy</button>
+        <button type="submit" class="btn btn-success">Thêm store</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Step Config Modal -->
+<div id="step-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999">
+  <div style="background:#fff;max-width:520px;margin:80px auto;padding:24px;border-radius:10px">
+    <h3 id="step-modal-title" style="margin-bottom:8px"></h3>
+    <p id="step-modal-desc" class="muted" style="margin-bottom:16px;font-size:14px;line-height:1.5"></p>
+    <div id="step-modal-fields"></div>
+    <div class="flex" style="justify-content:flex-end;gap:8px;margin-top:16px">
+      <button type="button" class="btn" style="background:#eee" onclick="closeStepConfig()">Hủy</button>
+      <button type="button" class="btn btn-success" id="step-modal-run" onclick="executeStep()">Chạy</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var currentStoreId = null;
+var currentStep = null;
+
+var STEP_META = {
+  crawl: {
+    label: '1. Crawl sản phẩm',
+    desc: 'Tự động tìm kiếm và thu thập sản phẩm từ AliExpress (từ khóa tiếng Anh) và 1688 (từ khóa tiếng Trung). Nếu bị chặn, thử tăng delay hoặc dùng proxy.',
+    fields: [
+      {name:'max_pages_1688', label:'Số trang 1688', type:'number', default:3, min:1, max:20, help:'Thu thập tối đa bao nhiêu trang từ 1688'},
+      {name:'max_pages_aliexpress', label:'Số trang AliExpress', type:'number', default:3, min:1, max:20, help:'Thu thập tối đa bao nhiêu trang từ AliExpress'},
+      {name:'', label:'--- Mạng & Chống chặn ---', type:'separator'},
+      {name:'proxy', label:'Proxy (http/socks)', type:'text', default:'', help:'VD: http://127.0.0.1:8080 hoặc để trống'},
+      {name:'delay_min', label:'Delay tối thiểu (giây)', type:'number', default:3, min:1, max:60, help:'Chờ ngẫu nhiên giữa các request'},
+      {name:'delay_max', label:'Delay tối đa (giây)', type:'number', default:8, min:1, max:60},
+      {name:'max_retries', label:'Số lần retry khi bị chặn', type:'number', default:3, min:0, max:10, help:'Tự động thử lại với delay tăng dần'},
+      {name:'', label:'--- 1688 Cookies ---', type:'separator'},
+      {name:'cookies_1688', label:'Cookies 1688 (từ Chrome DevTools)', type:'textarea', default:'', help:'Vào Chrome F12 > Application > Cookies > 1688.com > Export, dán vào đây. Bỏ qua nếu không crawl 1688.'},
+      {name:'', label:'--- AliExpress (Playwright tự động fallback) ---', type:'separator'},
+      {name:'cookies_ae', label:'Cookies AliExpress (tùy chọn)', type:'textarea', default:'', help:'Vào Chrome F12 > Application > Cookies > aliexpress.com > Export. Nếu để trống, hệ thống sẽ dùng Playwright (trình duyệt thật) để vượt x5sec.'},
+    ]
+  },
+  images: {
+    label: '2. Xử lý ảnh',
+    desc: 'Tải ảnh sản phẩm về máy, sau đó xử lý: xóa nền, tăng cường chất lượng, thêm watermark, resize theo kích thước cấu hình. Cấu hình watermark (chữ/ảnh) trong phần Sửa store.',
+    fields: [
+      {name:'bg_removal', label:'Xóa nền (background removal)', type:'checkbox', default:false},
+      {name:'enhance', label:'Tăng cường chất lượng ảnh', type:'checkbox', default:true},
+      {name:'watermark', label:'Thêm watermark', type:'checkbox', default:false},
+      {name:'quality', label:'Chất lượng ảnh đầu ra (%)', type:'number', default:90, min:10, max:100},
+    ]
+  },
+  caption: {
+    label: '4. Tạo caption',
+    desc: 'Tự động sinh tiêu đề, mô tả, bullet points và hashtag cho sản phẩm. Dùng AI (Gemini/OpenAI) nếu có API key, nếu không dùng template mặc định.',
+    fields: [
+      {name:'ai_provider', label:'AI Provider', type:'select', default:'google_gemini', options:[{v:'',l:'Template (không dùng AI)'},{v:'google_gemini',l:'Google Gemini'},{v:'openai',l:'OpenAI / GPT'}]},
+      {name:'ai_api_key', label:'API Key', type:'text', default:'', help:'Nhập API key của Gemini hoặc OpenAI'},
+      {name:'ai_model', label:'Model', type:'text', default:'gemini-flash-latest', help:'Gemini: gemini-flash-latest | OpenAI: gpt-4o-mini'},
+      {name:'ai_language', label:'Ngôn ngữ caption', type:'text', default:'vi', help:'vi = tiếng Việt, en = tiếng Anh'},
+      {name:'ai_tone', label:'Giọng văn', type:'select', default:'professional', options:[{v:'professional',l:'Chuyên nghiệp'},{v:'friendly',l:'Thân thiện'},{v:'sales',l:'Bán hàng (kêu gọi)'}]},
+      {name:'ai_max_title', label:'Độ dài tối đa tiêu đề (ký tự)', type:'number', default:120, min:30, max:200},
+      {name:'ai_num_hashtags', label:'Số hashtag', type:'number', default:10, min:3, max:30},
+    ]
+  },
+  publish: {
+    label: '5. Đăng Shopee',
+    desc: 'Đăng sản phẩm lên Shopee thông qua API. Cần cấu hình Partner ID, Key, Shop ID trong phần Sửa store.',
+    fields: [
+      {name:'item_status', label:'Trạng thái đăng', type:'select', default:'UNLIST', options:[{v:'UNLIST',l:'Nháp (UNLIST)'},{v:'LIST',l:'Công khai (LIST)'}]},
+      {name:'pre_order_days', label:'Số ngày pre-order', type:'number', default:0, min:0, max:30, help:'0 = có sẵn, >0 = đặt trước'},
+    ]
+  },
+  pricing: {
+    label: 'Phân tích giá',
+    desc: 'So sánh giá sản phẩm với đối thủ trên Shopee, tính toán lợi nhuận dựa trên hệ số giá và margin đã cấu hình.',
+    fields: []
+  },
+  orders: {
+    label: 'Đồng bộ đơn hàng',
+    desc: 'Kéo đơn hàng từ Shopee về, tự động map sản phẩm với nguồn hàng và xuất danh sách cần đặt.',
+    fields: [
+      {name:'days_back', label:'Số ngày truy xuất', type:'number', default:7, min:1, max:30},
+    ]
+  },
+  flashsale: {
+    label: 'Flash sale',
+    desc: 'Tự động tạo chiến dịch flash sale trên Shopee cho các sản phẩm có lợi nhuận cao.',
+    fields: [
+      {name:'max_items', label:'Số sp tối đa', type:'number', default:20, min:1, max:100},
+    ]
+  },
+  cashflow: {
+    label: 'Dòng tiền',
+    desc: 'Phân tích dòng tiền dựa trên đơn hàng chờ xử lý, chi phí nhập hàng, và kỳ thanh toán của Shopee.',
+    fields: []
+  },
+  trends: {
+    label: 'Quét trend',
+    desc: 'Quét từ khóa hot trên Shopee và 1688, phát hiện các spike (tăng đột biến) để kịp thời nhập hàng.',
+    fields: []
+  },
+  virtualhub: {
+    label: 'Vận đơn',
+    desc: 'Tự động map mã vận đơn Trung Quốc (từ 1688) với đơn hàng Shopee để theo dõi và xuất manifest.',
+    fields: []
+  },
+  customercare: {
+    label: 'Chăm sóc KH',
+    desc: 'Tự động gửi tin nhắn xác nhận đơn, thông báo giao hàng và voucher đánh giá cho khách hàng.',
+    fields: []
+  }
+};
+
+function openStepConfig(storeId, step) {
+  var meta = STEP_META[step];
+  if (!meta) return;
+  currentStoreId = storeId;
+  currentStep = step;
+  document.getElementById('step-modal-title').textContent = meta.label;
+  document.getElementById('step-modal-desc').textContent = meta.desc;
+  // Load store-specific defaults from data attributes
+  var storeCard = document.getElementById('store-' + storeId);
+  var storeDefaults = {};
+  if (storeCard) {
+    storeDefaults.max_pages_1688 = storeCard.getAttribute('data-crawl-max-pages-1688') || '3';
+    storeDefaults.proxy = storeCard.getAttribute('data-crawl-proxy') || '';
+    // Load AI config from store card data attributes
+    var aiAttrs = ['ai_provider','ai_api_key','ai_model','ai_language','ai_tone','ai_max_title','ai_num_hashtags'];
+    for (var k = 0; k < aiAttrs.length; k++) {
+      var val = storeCard.getAttribute('data-' + aiAttrs[k].replace(/_/g, '-'));
+      if (val !== null && val !== '') storeDefaults[aiAttrs[k]] = val;
+    }
+  }
+  var fieldsHtml = '';
+  for (var i = 0; i < meta.fields.length; i++) {
+    var f = meta.fields[i];
+    if (f.type === 'separator') {
+      fieldsHtml += '<div style="margin:8px 0 4px;border-top:1px solid #eee;padding-top:8px;font-weight:600;font-size:13px;color:#666">' + f.label.replace('---','').trim() + '</div>';
+      continue;
+    }
+    if (f.type === 'textarea') {
+      fieldsHtml += '<div style="margin-bottom:12px">';
+      fieldsHtml += '<label style="display:block;margin-bottom:4px;font-weight:500">' + f.label + '</label>';
+      fieldsHtml += '<textarea name="' + f.name + '" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;min-height:80px;font-family:monospace;font-size:12px" placeholder="' + (f.help||'') + '">' + (storeDefaults[f.name] || f.default || '') + '</textarea>';
+      if (f.help) fieldsHtml += '<span class="muted" style="font-size:12px">' + f.help + '</span>';
+      fieldsHtml += '</div>';
+      continue;
+    }
+    if (f.type === 'checkbox') {
+      var checked = storeDefaults[f.name] !== undefined ? storeDefaults[f.name] : (f.default ? true : false);
+      fieldsHtml += '<label><input type="checkbox" name="' + f.name + '" ' + (checked ? 'checked' : '') + '> ' + f.label.split('(')[0].trim() + '</label>';
+    } else if (f.type === 'select') {
+      fieldsHtml += '<select name="' + f.name + '" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px">';
+      var selVal = storeDefaults[f.name] || f.default;
+      for (var j = 0; j < f.options.length; j++) {
+        var opt = f.options[j];
+        fieldsHtml += '<option value="' + opt.v + '"' + (opt.v === selVal ? ' selected' : '') + '>' + opt.l + '</option>';
+      }
+      fieldsHtml += '</select>';
+    } else {
+      var val = storeDefaults[f.name] || f.default || '';
+      fieldsHtml += '<input type="' + f.type + '" name="' + f.name + '" value="' + val + '" min="' + (f.min||'') + '" max="' + (f.max||'') + '" step="' + (f.step||'') + '" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px">';
+    }
+    if (f.help) fieldsHtml += '<span class="muted" style="font-size:12px">' + f.help + '</span>';
+    fieldsHtml += '</div>';
+  }
+  if (meta.fields.length === 0) {
+    fieldsHtml = '<p class="muted" style="font-style:italic">Bước này không có tham số tùy chỉnh.</p>';
+  }
+  document.getElementById('step-modal-fields').innerHTML = fieldsHtml;
+  document.getElementById('step-modal').style.display = 'block';
+}
+
+function closeStepConfig() { document.getElementById('step-modal').style.display = 'none'; }
+
+function executeStep() {
+  var meta = STEP_META[currentStep];
+  var params = {};
+  for (var i = 0; i < meta.fields.length; i++) {
+    var f = meta.fields[i];
+    if (f.type === 'separator' || f.type === '') continue;
+    var el = document.querySelector('[name="' + f.name + '"]');
+    if (el) {
+      if (f.type === 'checkbox') params[f.name] = el.checked;
+      else params[f.name] = el.value;
+    }
+  }
+  closeStepConfig();
+  runStepWithParams(currentStoreId, currentStep, params);
+}
+
+function runStepWithParams(storeId, step, params) {
+  var btn = document.querySelector('#store-' + storeId + ' .btn-group button[onclick*="' + step + '"], #store-' + storeId + ' .btn-group + .btn-group button[onclick*="' + step + '"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang chạy...'; }
+  fetch('/run/' + storeId + '/' + step, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(params)
+  })
+  .then(r => r.json())
+  .then(d => { if (d.error) addLog('LỖI: ' + d.error); })
+  .catch(e => addLog('LỖI: ' + e));
+}
+
+function showAddStore() { document.getElementById('add-modal').style.display = 'block'; }
+function closeAddStore() { document.getElementById('add-modal').style.display = 'none'; }
+
+function autoTranslateNew() {
+  const vnText = document.getElementById('new-kw-vn').value.trim();
+  if (!vnText) { alert('Nhập từ khóa tiếng Việt trước!'); return; }
+  fetch('/translate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text: vnText})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.cn) document.getElementById('new-kw-cn').value = d.cn;
+    if (d.en) document.getElementById('new-kw-en').value = d.en;
+  })
+  .catch(e => alert('LỖI dịch: ' + e));
+}
+
+function addStore(e) {
+  e.preventDefault();
+  const form = e.target;
+  const data = new FormData(form);
+  if (!data.get('name') || !data.get('name').trim()) {
+    const kw = document.getElementById('new-kw-vn').value.split(',')[0].trim();
+    data.set('name', kw || 'Store mới');
+  }
+  if (!data.get('store_id') || !data.get('store_id').trim()) {
+    const name = data.get('name').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'store';
+    data.set('store_id', name);
+  }
+  fetch('/store/new', { method: 'POST', body: data })
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { alert('LỖI: ' + d.error); return; }
+      closeAddStore();
+      location.reload();
+    });
+}
+
+function deleteStore(storeId) {
+  if (!confirm('Xóa store "' + storeId + '" ? Dữ liệu sẽ bị xóa hoàn toàn!')) return;
+  fetch('/store/' + storeId + '/delete', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === 'deleted') {
+        document.getElementById('store-' + storeId).remove();
+      }
+    });
+}
+
+function addLog(msg) {
+  const box = document.getElementById('log-box');
+  box.innerHTML += '<div>' + msg + '</div>';
+  box.scrollTop = box.scrollHeight;
+}
+
+function refreshLog() {
+  fetch('/log')
+    .then(r => r.json())
+    .then(d => {
+      const box = document.getElementById('log-box');
+      box.innerHTML = d.log.map(l => '<div>' + l + '</div>').join('');
+      box.scrollTop = box.scrollHeight;
+      document.getElementById('status-text').textContent = d.running ? 'Đang xử lý...' : 'Sẵn sàng';
+    });
+}
+setInterval(refreshLog, 2000);
+refreshLog();
+</script>
+{% endblock %}

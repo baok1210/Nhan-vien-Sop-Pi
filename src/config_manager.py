@@ -44,7 +44,7 @@ def create_store(store_id: str, name: str) -> dict:
             "min_margin_percent": 30,
             "min_margin_percentage": 0.15,
             "price_multiplier": 2.5,
-            "competitor_search_enabled": true,
+            "competitor_search_enabled": True,
         },
         "sources": {
             "1688": {"enabled": True, "dropship_filter": True, "max_pages": 3, "delay_seconds": 3},

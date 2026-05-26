@@ -156,6 +156,7 @@ class OrderManager:
                         break
 
             recipient = detail_map.get("recipient_address", {})
+            customer_name = recipient.get("name", "")
             addr_parts = [
                 recipient.get("full_address", ""),
                 recipient.get("city", ""),
@@ -198,6 +199,7 @@ class OrderManager:
                     "source_image": source_img,
                     "source_title_cn": source_title_cn,
                     "source_variation_name": variation_name,
+                    "customer_name": customer_name,
                     "customer_address": customer_address,
                     "order_total": detail_map.get("total_amount", ""),
                     "shipping_carrier": detail_map.get("shipping_carrier", ""),

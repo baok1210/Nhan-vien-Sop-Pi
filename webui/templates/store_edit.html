@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex mb-12">
+  <a href="/" class="btn btn-sm" style="background:#eee">&larr; Về dashboard</a>
+  <h2>Sửa cấu hình: {{ data.get('name', store_id) }}</h2>
+</div>
+
+<div class="card">
+  <form onsubmit="saveEdit(event)">
+    <div class="flex" style="justify-content:space-between;align-items:center">
+      <h3>Từ khóa tìm kiếm</h3>
+      <button type="button" class="btn btn-sm btn-primary" onclick="autoTranslate()">Dịch tự động (VN -> CN + EN)</button>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Tiếng Việt (Shopee) <span class="muted">- Nhập vào đây trước, rồi bấm "Dịch"</span></label>
+      <input name="kw_vn" id="kw-vn" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('niche', {}).get('keywords_vn', [])|join(', ') }}"
+        placeholder="VD: đồ chơi cho mèo, phụ kiện chó, đồ dùng thú cưng">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Tiếng Trung (1688) <span class="muted">- Tự động dịch từ tiếng Việt</span></label>
+      <input name="kw_cn" id="kw-cn" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('niche', {}).get('keywords_cn', [])|join(', ') }}"
+        placeholder="Bấm 'Dịch' để tự động fill">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Tiếng Anh (AliExpress) <span class="muted">- Tự động dịch từ tiếng Việt</span></label>
+      <input name="kw_en" id="kw-en" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('niche', {}).get('keywords_en', [])|join(', ') }}"
+        placeholder="Bấm 'Dịch' để tự động fill">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Shopee Category ID</label>
+      <input name="cat_id" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('niche', {}).get('category_shopee_id', 0) }}">
+    </div>
+
+    <h3 style="margin-top:20px">Cấu hình giá</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Hệ số giá (price_multiplier)</label>
+        <input name="price_multiplier" type="number" step="0.1" min="1" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('niche', {}).get('price_multiplier', 2.5) }}">
+        <span class="muted" style="font-size:12px">Giá bán = giá CNY * multiplier</span>
+      </div>
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Max giá CNY</label>
+        <input name="max_price_cny" type="number" step="1" min="0" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('niche', {}).get('max_price_cny', 50) }}">
+        <span class="muted" style="font-size:12px">Chỉ lấy sp dưới giá này</span>
+      </div>
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Margin tối thiểu %</label>
+        <input name="min_margin_percent" type="number" step="1" min="0" max="100" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('niche', {}).get('min_margin_percent', 30) }}">
+        <span class="muted" style="font-size:12px">Tỷ suất lợi tối thiểu</span>
+      </div>
+    </div>
+
+    <h3 style="margin-top:20px">Cấu hình ảnh & Watermark</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Watermark text</label>
+        <input name="wm_text" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('image_processing', {}).get('anti_duplication', {}).get('watermark', {}).get('text', '') }}"
+          placeholder="Để trống sẽ dùng tên store">
+        <span class="muted" style="font-size:12px">Chữ in lên ảnh sản phẩm</span>
+      </div>
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Độ mờ watermark (0-100)</label>
+        <input name="wm_opacity" type="number" min="0" max="100" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('image_processing', {}).get('anti_duplication', {}).get('watermark', {}).get('opacity', 80) }}">
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Đường dẫn ảnh watermark (để trống nếu chỉ dùng chữ)</label>
+      <input name="wm_image_path" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('image_processing', {}).get('anti_duplication', {}).get('watermark', {}).get('image_path', '') }}"
+        placeholder="VD: assets/watermark.png">
+    </div>
+    <div style="margin-bottom:12px">
+      <label><input type="checkbox" name="wm_enabled"
+        {% if data.get('image_processing', {}).get('anti_duplication', {}).get('watermark', {}).get('enabled', True) %}checked{% endif %}>
+        Bật watermark</label>
+    </div>
+
+    <h3 style="margin-top:20px">Cấu hình AI Caption</h3>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Provider</label>
+      <select name="ai_provider" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px">
+        <option value="" {% if not data.get('ai', {}).get('caption', {}).get('provider') %}selected{% endif %}>Template (không dùng AI)</option>
+        <option value="google_gemini" {% if data.get('ai', {}).get('caption', {}).get('provider') == 'google_gemini' %}selected{% endif %}>Google Gemini</option>
+        <option value="openai" {% if data.get('ai', {}).get('caption', {}).get('provider') == 'openai' %}selected{% endif %}>OpenAI / GPT</option>
+      </select>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">API Key</label>
+      <input name="ai_api_key" type="password" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('ai', {}).get('caption', {}).get('api_key', '') }}" placeholder="Gemini hoặc OpenAI API key">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Model</label>
+      <input name="ai_model" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('ai', {}).get('caption', {}).get('model', 'gemini-flash-latest') }}" placeholder="gemini-flash-latest / gpt-4o-mini">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Ngôn ngữ</label>
+        <input name="ai_language" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('ai', {}).get('caption', {}).get('language', 'vi') }}">
+      </div>
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Giọng văn</label>
+        <select name="ai_tone" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px">
+          <option value="professional" {% if data.get('ai', {}).get('caption', {}).get('tone', 'professional') == 'professional' %}selected{% endif %}>Chuyên nghiệp</option>
+          <option value="friendly" {% if data.get('ai', {}).get('caption', {}).get('tone') == 'friendly' %}selected{% endif %}>Thân thiện</option>
+          <option value="sales" {% if data.get('ai', {}).get('caption', {}).get('tone') == 'sales' %}selected{% endif %}>Bán hàng (kêu gọi)</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Độ dài tối đa tiêu đề</label>
+        <input name="ai_max_title" type="number" min="30" max="200" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('ai', {}).get('caption', {}).get('max_title_length', 120) }}">
+      </div>
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Số hashtag</label>
+        <input name="ai_num_hashtags" type="number" min="3" max="30" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('ai', {}).get('caption', {}).get('num_hashtags', 10) }}">
+      </div>
+    </div>
+
+    <h3 style="margin-top:20px">Shopee API</h3>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Partner ID</label>
+      <input name="partner_id" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('shopee', {}).get('partner_id', '') }}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Partner Key</label>
+      <input name="partner_key" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" type="password"
+        value="{{ data.get('shopee', {}).get('partner_key', '') }}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Shop ID</label>
+      <input name="shop_id" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('shopee', {}).get('shop_id', '') }}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Access Token</label>
+      <input name="access_token" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" type="password"
+        value="{{ data.get('shopee', {}).get('access_token', '') }}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Refresh Token</label>
+      <input name="refresh_token" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px" type="password"
+        value="{{ data.get('shopee', {}).get('refresh_token', '') }}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Môi trường (uat/prod)</label>
+      <input name="env" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('shopee', {}).get('environment', 'uat') }}">
+    </div>
+
+    <h3 style="margin-top:20px">Nguồn hàng & Crawl</h3>
+    <div style="margin-bottom:12px">
+      <label><input type="checkbox" name="src_1688" {% if data.get('sources', {}).get('1688', {}).get('enabled', True) %}checked{% endif %}> 1688.com</label><br>
+      <label><input type="checkbox" name="src_ae" {% if data.get('sources', {}).get('aliexpress', {}).get('enabled', True) %}checked{% endif %}> AliExpress</label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Số trang 1688</label>
+        <input name="max_pages_1688" type="number" min="1" max="50" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('sources', {}).get('1688', {}).get('max_pages', 3) }}">
+      </div>
+      <div>
+        <label style="display:block;margin-bottom:4px;font-weight:500">Số trang AliExpress</label>
+        <input name="max_pages_ae" type="number" min="1" max="50" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+          value="{{ data.get('sources', {}).get('aliexpress', {}).get('max_pages', 3) }}">
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Proxy (để trống nếu không dùng)</label>
+      <input name="proxy" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px"
+        value="{{ data.get('sources', {}).get('1688', {}).get('proxy', '') or data.get('sources', {}).get('aliexpress', {}).get('proxy', '') }}"
+        placeholder="VD: http://127.0.0.1:8080 hoặc socks5://user:pass@host:1080">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Cookies 1688 (dạng JSON từ Chrome)</label>
+      <textarea name="cookies_1688" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;min-height:60px;font-family:monospace;font-size:12px"
+        placeholder='[{"name":"xxx","value":"yyy"},...] - Copy từ Chrome F12 > Application > Cookies > 1688.com'>{% if data.get('sources', {}).get('1688', {}).get('cookies') %}{{ data.get('sources', {}).get('1688', {}).get('cookies')|tojson }}{% endif %}</textarea>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;margin-bottom:4px;font-weight:500">Cookies AliExpress (tùy chọn, JSON từ Chrome)</label>
+      <textarea name="cookies_ae" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;min-height:60px;font-family:monospace;font-size:12px"
+        placeholder='[{"name":"xxx","value":"yyy"},...] - Copy từ Chrome F12 > Application > Cookies > aliexpress.com. Để trống nếu dùng Playwright.'>{% if data.get('sources', {}).get('aliexpress', {}).get('cookies') %}{{ data.get('sources', {}).get('aliexpress', {}).get('cookies')|tojson }}{% endif %}</textarea>
+    </div>
+
+    <div class="flex" style="gap:8px;margin-top:16px">
+      <button type="submit" class="btn btn-success">Lưu</button>
+      <a href="/" class="btn" style="background:#eee">Hủy</a>
+    </div>
+  </form>
+  <div id="edit-status" class="muted mt-12"></div>
+</div>
+
+<script>
+function autoTranslate() {
+  const vnText = document.getElementById('kw-vn').value.trim();
+  if (!vnText) { alert('Nhập từ khóa tiếng Việt trước!'); return; }
+  document.getElementById('edit-status').textContent = 'Đang dịch...';
+  fetch('/translate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text: vnText})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { alert('LỖI: ' + d.error); return; }
+    if (d.cn) document.getElementById('kw-cn').value = d.cn;
+    if (d.en) document.getElementById('kw-en').value = d.en;
+    document.getElementById('edit-status').textContent = 'Đã dịch xong! Kiểm tra và bấm Lưu.';
+  })
+  .catch(e => { alert('LỖI dịch: ' + e); });
+}
+
+function saveEdit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const data = new FormData(form);
+  fetch(window.location.href, { method: 'POST', body: data })
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('edit-status').textContent = d.status === 'saved' ? 'Đã lưu!' : 'LỖI: ' + d.error;
+    });
+}
+</script>
+{% endblock %}

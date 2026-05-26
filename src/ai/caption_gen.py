@@ -180,6 +180,8 @@ class CaptionGenerator:
         from src.processing.text_translate import TextTranslator
         translator = TextTranslator({})
         title_vi = translator.translate(title_cn)
+        if not title_vi or title_vi == title_cn:
+            title_vi = self._generate_title_vn_fallback(title_cn, category)
 
         glossary_section = self._glossary_prompt(category, title_cn)
         if glossary_section and "Không có từ điển" not in glossary_section:
@@ -195,6 +197,46 @@ class CaptionGenerator:
                             )
 
         words = title_vi.lower().split()
+        hashtags = self._generate_hashtags(title_vi, category, words)
+
+        cat_lower = category.lower() if category else ""
+        cat_key = None
+        for key, keywords in _CATEGORY_BULLETS.items():
+            if any(k in cat_lower for k in keywords):
+                cat_key = key
+                break
+
+        if cat_key and cat_key in _CATEGORY_BULLETS:
+            bullets = [b.format(price=int(price_vnd)) for b in _CATEGORY_BULLETS[cat_key]]
+        else:
+            bullets = [
+                f"Sản phẩm chất lượng cao, bền đẹp theo thời gian",
+                f"Thiết kế thông minh, tiện lợi cho sử dụng hàng ngày",
+                f"Giá chỉ từ {int(price_vnd):,}đ - Rẻ hơn mua tại cửa hàng",
+                f"Giao hàng nhanh toàn quốc, đổi trả dễ dàng",
+                f"Cam kết hàng giống mô tả, chất lượng đúng giá",
+            ]
+
+        description = self._generate_description(title_vi, bullets, price_vnd)
+
+        return {
+            "title_vi": self._clean_title(title_vi),
+            "description": description,
+            "bullet_points": bullets,
+            "hashtags": hashtags,
+        }
+
+    def _generate_title_vn_fallback(self, title_cn: str, category: str) -> str:
+        if not title_cn:
+            return f"Sản phẩm {category}" if category else "Sản phẩm chất lượng cao"
+        from src.processing.text_translate import TextTranslator
+        t = TextTranslator({})
+        result = t._fallback_translate(title_cn)
+        if result == title_cn:
+            return f"{title_cn} - {category}" if category else title_cn
+        return result
+
+    def _generate_hashtags(self, title_vi: str, category: str, words: list) -> list:
         hashtags = []
         for w in words[:10]:
             w_clean = w.strip(",.!?()[]{}")
@@ -206,50 +248,27 @@ class CaptionGenerator:
                 tag = f"#{w.strip()}"
                 if tag not in hashtags:
                     hashtags.append(tag)
-        hashtags = hashtags[:10]
+        extra_tags = ["#hàngchấtlượng", "#muasamthongminh", "#dealhot", "#sanphamgiatot", "#giárẻ"]
+        for tag in extra_tags:
+            if tag not in hashtags:
+                hashtags.append(tag)
+        hashtags = hashtags[:15]
         if not hashtags:
-            hashtags = ["#sanphamgiatot", "#muasamthongminh"]
+            hashtags = ["#sanphamgiatot", "#muasamthongminh", "#dealhot", "#hàngchấtlượng", "#giárẻ"]
+        return hashtags
 
-        cat_lower = category.lower() if category else ""
-        if "pet" in cat_lower or "dog" in cat_lower or "cat" in cat_lower:
-            bullets = [
-                f"Sản phẩm chất lượng, an toàn cho thú cưng",
-                f"Thiết kế tiện lợi, dễ sử dụng",
-                f"Phù hợp cho mọi giống chó/mèo",
-                f"Giá chỉ từ {int(price_vnd):,}đ",
-                f"Giao hàng nhanh toàn quốc",
-            ]
-        elif "phone" in cat_lower or "điện thoại" in cat_lower:
-            bullets = [
-                f"Chất liệu cao cấp, bền bỉ theo thời gian",
-                f"Thiết kế ôm sát, bảo vệ toàn diện",
-                f"Chống trầy, chống sốc hiệu quả",
-                f"Dễ dàng lắp đặt và tháo rời",
-                f"Giá chỉ từ {int(price_vnd):,}đ",
-            ]
-        elif "climb" in cat_lower or "hiking" in cat_lower or "outdoor" in cat_lower or "thể thao" in cat_lower:
-            bullets = [
-                f"Chất liệu bền bỉ, chịu lực tốt",
-                f"Thiết kế chuyên nghiệp, an toàn khi sử dụng",
-                f"Phù hợp cho mọi hoạt động ngoài trời",
-                f"Nhẹ, gọn, dễ mang theo",
-                f"Giá chỉ từ {int(price_vnd):,}đ",
-            ]
-        else:
-            bullets = [
-                f"Chất liệu cao cấp, bền đẹp",
-                f"Thiết kế thông minh, tiện lợi",
-                f"Phù hợp sử dụng hàng ngày",
-                f"Giá chỉ từ {int(price_vnd):,}đ",
-                f"Cam kết hàng giống mô tả",
-            ]
-
-        return {
-            "title_vi": self._clean_title(title_vi),
-            "description": f"{title_vi} - {bullets[0]}. {bullets[1]}. Giao hàng nhanh toàn quốc. Đặt mua ngay!",
-            "bullet_points": bullets,
-            "hashtags": hashtags,
-        }
+    def _generate_description(self, title_vi: str, bullets: list, price_vnd: float) -> str:
+        desc = f"{title_vi}\n\n"
+        desc += "🌟 **SẢN PHẨM CHẤT LƯỢNG CAO** 🌟\n\n"
+        desc += "📌 THÔNG TIN SẢN PHẨM:\n"
+        for b in bullets:
+            desc += f"✅ {b}\n"
+        desc += f"\n💰 GIÁ: Chỉ từ {int(price_vnd):,}đ\n\n"
+        desc += "🛒 ĐẶT MUA NGAY hôm nay để nhận ưu đãi!\n"
+        desc += "🚚 Giao hàng nhanh toàn quốc\n"
+        desc += "🔄 Đổi trả trong 7 ngày nếu sản phẩm lỗi\n\n"
+        desc += "#muasamthongminh #dealhot #hàngchấtlượng"
+        return desc
 
     def _clean_title(self, title: str) -> str:
         max_len = self.max_title_length
@@ -273,3 +292,56 @@ class CaptionGenerator:
                 "bullet_points": [],
                 "hashtags": [],
             }
+
+
+_CATEGORY_BULLETS = {
+    "pet": [
+        "Sản phẩm chất lượng cao, an toàn tuyệt đối cho thú cưng của bạn",
+        "Thiết kế thông minh, tiện lợi cho cả bạn và thú cưng",
+        "Phù hợp cho mọi giống chó/mèo, kích cỡ đa dạng",
+        "Giá chỉ từ {price:,}đ - Tiết kiệm hơn mua tại shop",
+        "Giao hàng nhanh toàn quốc, đổi trả trong 7 ngày",
+    ],
+    "phone": [
+        "Chất liệu cao cấp, bền bỉ, bảo vệ điện thoại tối ưu",
+        "Thiết kế ôm sát, sang trọng, giữ nguyên vẻ đẹp máy",
+        "Chống trầy, chống sốc, chống bám vân tay hiệu quả",
+        "Dễ dàng lắp đặt, phù hợp với mọi dòng máy",
+        "Giá chỉ từ {price:,}đ - Rẻ hơn mua tại cửa hàng",
+    ],
+    "outdoor": [
+        "Chất liệu cao cấp, chịu lực tốt, bền bỉ trong mọi điều kiện thời tiết",
+        "Thiết kế chuyên nghiệp, an toàn tuyệt đối khi sử dụng",
+        "Siêu nhẹ, gấp gọn, dễ dàng mang theo mọi nơi",
+        "Phù hợp cho mọi hoạt động: leo núi, cắm trại, dã ngoại",
+        "Giá chỉ từ {price:,}đ - Đồ bền giá rẻ",
+    ],
+    "beauty": [
+        "Sản phẩm chất lượng cao, an toàn cho da, không gây kích ứng",
+        "Thành phần lành tính, phù hợp với mọi loại da",
+        "Thiết kế sang trọng, tiện lợi khi sử dụng và mang theo",
+        "Hiệu quả rõ rệt chỉ sau vài lần sử dụng",
+        "Giá chỉ từ {price:,}đ - Mỹ phẩm chính hãng giá tốt",
+    ],
+    "electronic": [
+        "Chất lượng cao, kiểm định nghiêm ngặt trước khi xuất xưởng",
+        "Công nghệ mới nhất, tiết kiệm điện, hiệu suất vượt trội",
+        "Tương thích với mọi thiết bị, dễ dàng cài đặt",
+        "Bảo hành chính hãng, hỗ trợ kỹ thuật 24/7",
+        "Giá chỉ từ {price:,}đ - Rẻ hơn thị trường",
+    ],
+    "fashion": [
+        "Chất liệu cao cấp, thoải mái, thoáng mát khi mặc",
+        "Thiết kế thời trang, phù hợp xu hướng mới nhất",
+        "Phù hợp cho cả nam và nữ, nhiều màu sắc lựa chọn",
+        "Bền màu, không phai, không xù lông sau nhiều lần giặt",
+        "Giá chỉ từ {price:,}đ - Thời trang giá rẻ",
+    ],
+    "home": [
+        "Chất liệu an toàn, không BPA, thân thiện môi trường",
+        "Thiết kế thông minh, giúp không gian sống gọn gàng hơn",
+        "Dễ dàng vệ sinh và bảo quản",
+        "Đa năng, phù hợp với mọi không gian nhà ở",
+        "Giá chỉ từ {price:,}đ - Đồ gia dụng chất lượng",
+    ],
+}
