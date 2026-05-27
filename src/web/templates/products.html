@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="margin-bottom:20px">&#9776; San pham</h1>
+
+{% if products %}
+<div class="card">
+  <h3>Tong cong: {{ products | length }} san pham</h3>
+</div>
+<div class="card" style="padding:0;overflow-x:auto">
+  <table>
+    <thead><tr>
+      <th>Anh</th><th>ID</th><th>Ten</th><th>Gia (CNY)</th><th>Nguon</th><th>Nha cung cap</th><th>Ban</th>
+    </tr></thead>
+    <tbody>
+    {% for p in products %}
+    <tr>
+      <td>
+        {% if p.image_urls and p.image_urls[0] %}
+        <img src="{{ p.image_urls[0] }}" onerror="this.style.display='none'" alt="">
+        {% endif %}
+      </td>
+      <td style="font-size:12px;color:#666">{{ p.id[:12] }}</td>
+      <td>{{ p.title_cn[:50] }}</td>
+      <td>{{ p.price_cny }}</td>
+      <td><span class="badge badge-blue">{{ p.platform }}</span></td>
+      <td>{{ p.supplier_name[:20] or '-' }}</td>
+      <td>{{ p.sales_count or 0 }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card">
+  <p style="color:#666">Chua co san pham nao. Vao <a href="/crawl">Crawl</a> de lay san pham.</p>
+</div>
+{% endif %}
+{% endblock %}

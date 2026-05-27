@@ -1,8 +1,9 @@
-import json
+import json, os
 import sys
 from pathlib import Path
 from src.source.ali1688 import Ali1688Scraper
 from src.source.aliexpress import AliExpressScraper
+from src.source.aliexpress_api import AliExpressAPI
 from src.processing.image_processor import ImageProcessor
 from src.ai.caption_gen import CaptionGenerator
 from src.publisher.shopee import ShopeeClient
@@ -13,9 +14,90 @@ from src.utils.logger import setup_logger
 logger = setup_logger("pipeline")
 
 
+def _load_dotenv(path: str = ".env") -> dict:
+    """Load .env file, return dict of key=value pairs."""
+    env_file = Path(path)
+    if not env_file.exists():
+        return {}
+    envs = {}
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        envs[key.strip()] = val.strip().strip("\"'")
+    return envs
+
+
+_ENV_MAP = {
+    "GEMINI_API_KEY": ("ai", "caption", "api_key"),
+    "ALIEXPRESS_APP_KEY": ("source", "aliexpress", "app_key"),
+    "ALIEXPRESS_APP_SECRET": ("source", "aliexpress", "app_secret"),
+    "ALIEXPRESS_TRACKING_ID": ("source", "aliexpress", "tracking_id"),
+    "SHOPEE_PARTNER_ID": ("shopee", "partner_id"),
+    "SHOPEE_PARTNER_KEY": ("shopee", "partner_key"),
+    "SHOPEE_SHOP_ID": ("shopee", "shop_id"),
+    "SHOPEE_ACCESS_TOKEN": ("shopee", "access_token"),
+    "SHOPEE_REFRESH_TOKEN": ("shopee", "refresh_token"),
+    "TELEGRAM_BOT_TOKEN": ("notification", "telegram_bot_token"),
+    "TELEGRAM_CHAT_ID": ("notification", "telegram_chat_id"),
+}
+
+
+def _merge_env(config: dict, envs: dict):
+    """Overwrite config values with .env secrets."""
+    for env_key, json_path in _ENV_MAP.items():
+        val = envs.get(env_key)
+        if val:
+            target = config
+            for key in json_path[:-1]:
+                target = target.setdefault(key, {})
+            target[json_path[-1]] = val
+
+
 def load_config(path: str = "config/config.json") -> dict:
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        config = json.load(f)
+    _merge_env(config, _load_dotenv())
+    return config
+
+
+def validate_config(config: dict) -> list[str]:
+    """Check config, return list of warnings/issues."""
+    warnings = []
+
+    niche = config.get("niche", {})
+    if not niche.get("keywords_cn") and not niche.get("keywords_en"):
+        warnings.append("Chưa có từ khóa tìm kiếm (keywords_cn / keywords_en) trong config")
+
+    src_1688 = config.get("source", {}).get("1688", {})
+    if src_1688.get("enabled", True):
+        pass
+
+    src_ae = config.get("source", {}).get("aliexpress", {})
+    if src_ae.get("enabled", True):
+        if not src_ae.get("app_key") or not src_ae.get("app_secret"):
+            warnings.append(
+                "AliExpress: chưa có API key -> sẽ dùng web scraper (dễ bị chặn). "
+                "Tạo App Key tại https://openservice.aliexpress.com"
+            )
+
+    ai_cfg = config.get("ai", {}).get("caption", {})
+    if not ai_cfg.get("api_key"):
+        warnings.append(
+            "Gemini API: chưa có key -> sẽ dùng template dịch (chất lượng thấp). "
+            "Lấy key miễn phí tại https://aistudio.google.com/apikey"
+        )
+
+    shopee_cfg = config.get("shopee", {})
+    if shopee_cfg.get("environment") == "prod":
+        if not shopee_cfg.get("partner_id") or not shopee_cfg.get("partner_key"):
+            warnings.append(
+                "Shopee: environment=prod nhưng thiếu Partner ID/Key. "
+                "Đăng ký tại https://open.shopee.com"
+            )
+
+    return warnings
 
 
 def run_crawl(config: dict):
@@ -36,11 +118,19 @@ def run_crawl(config: dict):
     if src_ae.get("enabled", True):
         keywords = config.get("niche", {}).get("keywords_en", [])
         if keywords:
-            scraper = AliExpressScraper(src_ae)
-            try:
-                all_products.extend(scraper.crawl_by_keywords(keywords))
-            finally:
-                scraper.close()
+            api_key = src_ae.get("app_key", "")
+            api_secret = src_ae.get("app_secret", "")
+            if api_key and api_secret:
+                logger.info("AliExpress: using Open Platform API")
+                api = AliExpressAPI(api_key, api_secret, src_ae.get("tracking_id", ""))
+                all_products.extend(api.crawl_by_keywords(keywords))
+            else:
+                logger.info("AliExpress: no API credentials, falling back to web scraper")
+                scraper = AliExpressScraper(src_ae)
+                try:
+                    all_products.extend(scraper.crawl_by_keywords(keywords))
+                finally:
+                    scraper.close()
 
     data_dir = Path("data/raw")
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -134,12 +224,19 @@ if __name__ == "__main__":
     print("=" * 60)
 
     if not Path(config_path).exists():
-        print(f"\n❌ Không tìm thấy file cấu hình: {config_path}")
+        print(f"\n\u274c Không tìm thấy file cấu hình: {config_path}")
         print("   Chạy lệnh sau để tạo cấu hình:")
-        print(f"   python scripts/config_wizard.py")
+        print("   \u2592 python scripts/config_wizard.py")
         sys.exit(1)
 
     config = load_config(config_path)
+
+    warnings = validate_config(config)
+    if warnings:
+        print("\n=== KIỂM TRA CẤU HÌNH ===")
+        for w in warnings:
+            print(f"  \u26a0\ufe0f {w}")
+        print()
 
     products = run_crawl(config)
     if products:
