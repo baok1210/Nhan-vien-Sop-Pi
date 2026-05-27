@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="margin-bottom:20px">&#9632; Dashboard</h1>
+
+{% if warnings %}
+<div class="warning">
+  <strong>&#9888; Canh bao cau hinh:</strong>
+  {% for w in warnings %}<div>{{ w }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<div class="grid">
+  <div class="card">
+    <h3>Tong san pham da crawl</h3>
+    <div class="value">{{ products_count }}</div>
+  </div>
+  <div class="card">
+    <h3>Trang thai crawl</h3>
+    <div class="value">
+      {% if crawl_status.running %}
+      <span style="color:#059669">&#9679; Dang chay</span>
+      {% else %}
+      <span style="color:#666">&#9679; San sang</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <h3>San pham crawl gan nhat</h3>
+    <div class="value">{{ crawl_status.products }}</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px">
+  <h3>Thong tin cua hang</h3>
+  <table>
+    <tr><td>Ten</td><td>{{ config.niche.name }}</td></tr>
+    <tr><td>Tu khoa Trung</td><td>{{ config.niche.keywords_cn | join(', ') }}</td></tr>
+    <tr><td>Tu khoa Anh</td><td>{{ config.niche.keywords_en | join(', ') }}</td></tr>
+    <tr><td>Gia max (CNY)</td><td>{{ config.niche.max_price_cny }}</td></tr>
+    <tr><td>He so gia</td><td>{{ config.niche.price_multiplier }}</td></tr>
+    <tr><td>1688</td><td>{% if config.source['1688'].enabled %}&#9989; Bat{% else %}&#10060; Tat{% endif %}</td></tr>
+    <tr><td>AliExpress</td><td>{% if config.source.aliexpress.enabled %}&#9989; Bat{% else %}&#10060; Tat{% endif %}</td></tr>
+  </table>
+</div>
+{% endblock %}

@@ -1,7 +1,7 @@
 import re, json, time, random
 from urllib.parse import urlencode
 from curl_cffi import requests as curl_requests
-from src.models.product import ProductSource
+from src.models.product import ProductSource, validate_product
 from src.utils.logger import setup_logger
 
 logger = setup_logger("aliexpress_scraper")
@@ -69,17 +69,27 @@ class AliExpressScraper:
                     logger.warning(f"AliExpress anti-bot (attempt {attempt+1}) cho '{keyword}'")
                     continue
 
-                products = self._parse_products(html)
+                products = self._parse_products(html, keyword)
                 if products:
+                    all_zero_price = all(p.price_cny == 0.0 for p in products)
+                    if all_zero_price and len(products) > 0:
+                        logger.warning(f"  {len(products)} sp nhưng giá=0 (x5sec block), sẽ retry với Playwright")
+                        return self._search_with_playwright(keyword, page)
                     logger.info(f"AliExpress: {len(products)} sp từ '{keyword}' trang {page}")
                     return products
-                return []
+                # Empty result — treat as anti-bot, retry
+                if attempt < 2:
+                    logger.info(f"  Trang {page}: 0 sp (attempt {attempt+1}), sẽ retry...")
+                    continue
+                # After 3 retries with 0 results, fallback to Playwright
+                logger.warning(f"curl_cffi failed, trying Playwright cho '{keyword}'...")
+                return self._search_with_playwright(keyword, page)
             except Exception as e:
                 logger.error(f"AliExpress lỗi '{keyword}' trang {page} (attempt {attempt+1}): {e}")
         logger.warning(f"curl_cffi failed, trying Playwright cho '{keyword}'...")
         return self._search_with_playwright(keyword, page)
 
-    def _parse_products(self, html: str) -> list[ProductSource]:
+    def _parse_products(self, html: str, keyword: str = "") -> list[ProductSource]:
         products = []
 
         extractors = [
@@ -108,7 +118,27 @@ class AliExpressScraper:
         if not products:
             products = self._parse_from_html(html)
 
-        return products
+        return self._validate_products(products, keyword)
+
+    def _validate_products(self, products: list[ProductSource], keyword: str) -> list[ProductSource]:
+        validated = []
+        for p in products:
+            p_dict = {
+                "id": p.id, "title_cn": p.title_cn, "price_cny": p.price_cny,
+                "original_price_cny": p.original_price_cny,
+                "image_urls": p.image_urls, "description_cn": p.description_cn,
+                "category_name_cn": p.category_name_cn, "attributes": p.attributes,
+                "variations": p.variations, "supplier_name": p.supplier_name,
+                "supplier_rating": p.supplier_rating, "sales_count": p.sales_count,
+                "detail_url": p.detail_url, "platform": p.platform,
+                "is_dropship": p.is_dropship,
+            }
+            result = validate_product(p_dict, source_label=f"AliExpress {keyword}")
+            if result is not None:
+                validated.append(p)
+            else:
+                logger.info(f"  Bỏ qua sản phẩm {p.id} do validation thất bại")
+        return validated
 
     def _extract_from_window_state(self, html: str) -> list[dict] | None:
         """Extract product list from window.__INITIAL_STATE__ or __RENDER_DATA__."""
@@ -433,22 +463,22 @@ class AliExpressScraper:
         try:
             from src.source.browser import BrowserManager
             if self._browser_mgr is None:
-                self._browser_mgr = BrowserManager(headless=True, proxy=self.proxy or None)
+                self._browser_mgr = BrowserManager(headless=True, proxy=self.proxy or None, cookies=self.cookies)
                 self._browser_mgr.start()
             ctx, page_obj = self._browser_mgr.new_page()
             params = {"SearchText": keyword, "page": page}
             url = f"{self.SEARCH_URL}?{urlencode(params)}"
-            logger.info(f"Playwright loading {url}")
+            logger.info(f"CloakBrowser loading {url}")
             page_obj.goto(url, timeout=60000, wait_until="networkidle")
             page_obj.wait_for_timeout(random.randint(3000, 5000))
             html = page_obj.content()
             ctx.close()
             if len(html) > 10000:
-                logger.info(f"Playwright success: {len(html)} bytes")
-                return self._parse_products(html)
+                logger.info(f"CloakBrowser success: {len(html)} bytes")
+                return self._parse_products(html, keyword)
             return []
         except Exception as e:
-            logger.error(f"Playwright AliExpress failed: {e}")
+            logger.error(f"CloakBrowser AliExpress failed: {e}")
             return []
 
     def crawl_by_keywords(self, keywords: list[str]) -> list[ProductSource]:

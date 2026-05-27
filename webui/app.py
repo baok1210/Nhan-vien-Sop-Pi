@@ -532,6 +532,31 @@ def run_customercare_thread(store_id, config):
     finally:
         pipeline_running = False
 
+@app.route('/research')
+def research_page():
+    from src.research.market_research import _load_cached
+    data = _load_cached()
+    return render_template('research.html', data=data)
+
+
+@app.route('/research/scan', methods=['POST'])
+def research_scan():
+    from src.research.market_research import scan_categories
+    min_price = request.json.get('min_price', 0) if request.is_json else 0
+    max_price = request.json.get('max_price', 0) if request.is_json else 0
+    category_ids = request.json.get('category_ids', '') if request.is_json else ''
+    try:
+        result = scan_categories(
+            min_price=int(min_price),
+            max_price=int(max_price),
+            category_ids=str(category_ids),
+        )
+        return jsonify({'status': 'ok', 'categories': len(result.get('categories', [])), 'summaries': result.get('summary', {})})
+    except Exception as e:
+        add_log(f'LỖI nghiên cứu thị trường: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/')
 def index():
     stores = list_stores()

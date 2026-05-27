@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="margin-bottom:20px">&#9654; Crawl san pham</h1>
+
+{% if crawl_status.running %}
+<div class="warning"><strong>&#9888; Dang chay crawl...</strong></div>
+{% endif %}
+
+<div class="card">
+  <h3>Dieu khien</h3>
+  <button class="btn btn-primary" id="btn-crawl" {% if crawl_status.running %}disabled{% endif %}>
+    &#9654; Bat dau crawl
+  </button>
+  <span id="crawl-msg" style="margin-left:10px;font-size:13px"></span>
+</div>
+
+<div class="card">
+  <h3>Nguon crawl</h3>
+  <table>
+    <tr><td>1688.com</td><td>{{ config.niche.keywords_cn | join(', ') }}</td></tr>
+    <tr><td>AliExpress</td><td>{{ config.niche.keywords_en | join(', ') }}</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Log</h3>
+  <div class="log-box" id="log-box">
+    {% for line in crawl_status.log %}{{ line }}
+{% else %}Chua chay lan nao
+{% endfor %}
+  </div>
+</div>
+
+<script>
+const btn = document.getElementById('btn-crawl');
+const logBox = document.getElementById('log-box');
+const msg = document.getElementById('crawl-msg');
+
+btn?.addEventListener('click', async () => {
+  btn.disabled = true;
+  msg.textContent = 'Dang khoi dong...';
+  const r = await fetch('/crawl/start', {method:'POST'});
+  const d = await r.json();
+  if (!d.ok) { msg.textContent = d.msg; return; }
+  msg.textContent = 'Dang crawl...';
+  const interval = setInterval(async () => {
+    const res = await fetch('/crawl/status');
+    const st = await res.json();
+    logBox.textContent = st.log.join('\n');
+    logBox.scrollTop = logBox.scrollHeight;
+    if (!st.running) {
+      clearInterval(interval);
+      btn.disabled = false;
+      msg.textContent = st.products + ' san pham';
+    }
+  }, 1500);
+});
+</script>
+{% endblock %}

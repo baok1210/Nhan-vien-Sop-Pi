@@ -28,7 +28,10 @@
     },
     "aliexpress": {
       "enabled": true,
-      "method": "direct",
+      "method": "api",
+      "app_key": "",
+      "app_secret": "",
+      "tracking_id": "",
     "max_pages": 2,
     "delay_seconds": 2,
       "proxy": ""
