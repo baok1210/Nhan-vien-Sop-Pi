@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, sys, asyncio, argparse
+import json, sys, asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.publisher.shopee import ShopeeClient
@@ -24,13 +24,14 @@ def load_store_cfg(store_id: str) -> dict:
         return json.load(f)
 
 def main():
-    parser = argparse.ArgumentParser(description="Dang san pham len Shopee tu captions.json")
-    parser.add_argument("store_id", help="ID cua store")
-    parser.add_argument("--limit", type=int, default=0, help="Gioi han so sp dang")
-    parser.add_argument("--status", default="UNLIST", choices=["UNLIST", "LIST"], help="Trang thai sau khi dang")
-    args = parser.parse_args()
+    if len(sys.argv) < 2:
+        print("Cách dùng: python scripts/post_to_shopee.py <store_id> [số_lượng]")
+        print("  Ví dụ: python scripts/post_to_shopee.py leo-nui")
+        print("  Đăng sản phẩm lên Shopee từ captions.json")
+        sys.exit(1)
 
-    config = load_store_cfg(args.store_id)
+    store_id = sys.argv[1]
+    config = load_store_cfg(store_id)
     if not config:
         return
 
@@ -39,13 +40,13 @@ def main():
         logger.error("Shopee not configured. Set partner_id, partner_key in store config.")
         return
 
-    captions = load_captions(args.store_id)
+    captions = load_captions(store_id)
     if not captions:
         return
 
     client = ShopeeClient(config)
-    niche_name = config.get("niche", {}).get("keywords_vn", [args.store_id])[0]
-    max_items = args.limit if args.limit > 0 else len(captions)
+    niche_name = config.get("niche", {}).get("keywords_vn", [store_id])[0]
+    max_items = int(sys.argv[2]) if len(sys.argv) > 2 else len(captions)
 
     # Load pricing report (if any)
     pricing_report_path = Path("data") / store_id / "pricing_report.json"
