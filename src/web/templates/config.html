@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="margin-bottom:20px">&#9881; Cau hinh</h1>
+
+{% if ok %}
+<div class="ok-msg">&#9989; Da luu cau hinh thanh cong!</div>
+{% elif err %}
+<div class="err-msg">&#10060; Loi: JSON khong hop le!</div>
+{% endif %}
+
+<div class="card">
+  <h3>Chinh sua cau hinh (JSON)</h3>
+  <p style="font-size:13px;color:#666;margin-bottom:10px">
+    Chi sua neu ban biet minh dang lam gi. Sai cau truc JSON se gay loi.
+  </p>
+  <form method="post">
+    <textarea name="config_json">{{ config_json }}</textarea>
+    <div class="mt-10">
+      <button class="btn btn-success" type="submit">&#128190; Luu cau hinh</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Ghi chu</h3>
+  <table>
+    <tr><td>API key</td><td>Khong luu o day, luu trong file <code>.env</code></td></tr>
+    <tr><td>1688 cookie</td><td>Tu dong lay tu Chrome neu da dang nhap 1688.com</td></tr>
+    <tr><td>AliExpress API</td><td>Dang ky tai openservice.aliexpress.com</td></tr>
+    <tr><td>Gemini API</td><td>Dang ky mien phi tai aistudio.google.com</td></tr>
+  </table>
+</div>
+{% endblock %}

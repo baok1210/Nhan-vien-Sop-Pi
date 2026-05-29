@@ -17,6 +17,8 @@ data/trend_triggers.json
 data/trend_trigger_*.json
 data/tracking_map.json
 data/exchange_rate_cache.db
+data/exchange_rate_cache.json
+data/order_tracking.db
 config/stores/
 
 # Assets (user-provided)
