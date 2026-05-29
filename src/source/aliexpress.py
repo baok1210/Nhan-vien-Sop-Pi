@@ -71,8 +71,13 @@ class AliExpressScraper:
 
                 products = self._parse_products(html)
                 if products:
-                    logger.info(f"AliExpress: {len(products)} sp từ '{keyword}' trang {page}")
-                    return products
+                    # Check if data is valid (has prices and URLs)
+                    valid = any(p.price_cny > 0 and p.detail_url for p in products)
+                    if valid:
+                        logger.info(f"AliExpress: {len(products)} sp từ '{keyword}' trang {page}")
+                        return products
+                    logger.warning(f"AliExpress: {len(products)} sp nhưng thiếu dữ liệu (giá/URL) — thử Playwright")
+                    return self._search_with_playwright(keyword, page)
                 return []
             except Exception as e:
                 logger.error(f"AliExpress lỗi '{keyword}' trang {page} (attempt {attempt+1}): {e}")

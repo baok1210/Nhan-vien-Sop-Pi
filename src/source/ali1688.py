@@ -57,22 +57,33 @@ class Ali1688Scraper:
         self._session.impersonate = "chrome120"
         self._browser_mgr = None
 
-        # Load cookies: config cookies > Chrome cookies
+        # Load cookies: config > config/1688_cookies.json > Chrome cookies
         config_cookies = config.get("cookies", {})
         if config_cookies:
             self._cookies = config_cookies
             logger.info(f"Đã tải {len(self._cookies)} cookie từ config")
             self._session.cookies.update(self._cookies)
         else:
-            self._cookies = extract_chrome_cookies()
-            if self._cookies:
-                logger.info(f"Đã tải {len(self._cookies)} cookie từ Chrome cho 1688")
-                self._session.cookies.update(self._cookies)
+            cookie_file = Path("config/1688_cookies.json")
+            if cookie_file.exists():
+                try:
+                    with open(cookie_file, encoding="utf-8") as f:
+                        self._cookies = json.load(f)
+                    logger.info(f"Đã tải {len(self._cookies)} cookie từ {cookie_file}")
+                    self._session.cookies.update(self._cookies)
+                except Exception as e:
+                    logger.warning(f"Lỗi đọc {cookie_file}: {e}")
+                    self._cookies = {}
             else:
-                logger.warning(
-                    "Không tìm thấy cookie 1688. "
-                    "Hãy đăng nhập 1688.com trong Chrome, hoặc đặt cookie trong config."
-                )
+                self._cookies = extract_chrome_cookies()
+                if self._cookies:
+                    logger.info(f"Đã tải {len(self._cookies)} cookie từ Chrome cho 1688")
+                    self._session.cookies.update(self._cookies)
+                else:
+                    logger.warning(
+                        "Không tìm thấy cookie 1688. "
+                        "Hãy chạy 'python scripts/export_cookies.py' trước."
+                    )
 
     def _headers(self, referer=None):
         h = {
@@ -355,11 +366,10 @@ class Ali1688Scraper:
 
     def crawl_by_keywords(self, keywords: list[str]) -> list[ProductSource]:
         if not self._cookies:
-            logger.warning(
-                "No 1688 cookies available. "
-                "Please login to 1688.com in Chrome, then run again."
+            logger.info(
+                "Không có cookie 1688 — sẽ thử Playwright fallback. "
+                "Kết quả có thể bị giới hạn."
             )
-            return []
 
         all_products = []
         for kw in keywords:
