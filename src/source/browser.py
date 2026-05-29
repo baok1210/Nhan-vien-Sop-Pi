@@ -1,32 +1,28 @@
-from playwright.sync_api import sync_playwright
+from cloakbrowser import launch
 from src.utils.logger import setup_logger
 
 logger = setup_logger("browser")
 
 
 class BrowserManager:
-    def __init__(self, headless: bool = True, proxy: str | None = None):
+    def __init__(self, headless: bool = True, proxy: str | None = None, cookies: list[dict] | None = None):
         self.headless = headless
         self.proxy = proxy
-        self._pw = None
+        self.cookies = cookies or []
         self._browser = None
 
     def start(self):
-        self._pw = sync_playwright().start()
         launch_opts = {"headless": self.headless}
         if self.proxy:
-            launch_opts["proxy"] = {"server": self.proxy}
-        self._browser = self._pw.chromium.launch(**launch_opts)
-        logger.info(f"Browser started (headless={self.headless})")
+            launch_opts["proxy"] = self.proxy
+        self._browser = launch(**launch_opts)
+        logger.info(f"CloakBrowser started (headless={self.headless})")
         return self
 
     def stop(self):
         if self._browser:
             self._browser.close()
             self._browser = None
-        if self._pw:
-            self._pw.stop()
-            self._pw = None
         logger.info("Browser stopped")
 
     def new_page(self):
@@ -40,5 +36,7 @@ class BrowserManager:
             locale="zh-CN",
             timezone_id="Asia/Shanghai",
         )
+        if self.cookies:
+            context.add_cookies(self.cookies)
         page = context.new_page()
         return context, page

@@ -38,3 +38,8 @@ Actual data must be real; never generate dummy/mock data for testing UI.
 - Exchange rate cache uses JSON file (not SQLite).
 - CLI scripts use `argparse` (not raw `sys.argv`).
 - Docker deployment via `docker-compose.yml` (volume-mounts: config, data, logs, assets).
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->

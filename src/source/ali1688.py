@@ -2,7 +2,7 @@ import re, json, time, random, os, sqlite3, shutil, tempfile
 from pathlib import Path
 from urllib.parse import urlencode
 from curl_cffi import requests as curl_requests
-from src.models.product import ProductSource
+from src.models.product import ProductSource, validate_product
 from src.utils.logger import setup_logger
 
 logger = setup_logger("1688_scraper")
@@ -170,7 +170,24 @@ class Ali1688Scraper:
         if not products:
             products = self._parse_from_html(html)
 
-        return products
+        validated = []
+        for p in products:
+            p_dict = {
+                "id": p.id, "title_cn": p.title_cn, "price_cny": p.price_cny,
+                "original_price_cny": p.original_price_cny,
+                "image_urls": p.image_urls, "description_cn": p.description_cn,
+                "category_name_cn": p.category_name_cn, "attributes": p.attributes,
+                "variations": p.variations, "supplier_name": p.supplier_name,
+                "supplier_rating": p.supplier_rating, "sales_count": p.sales_count,
+                "detail_url": p.detail_url, "platform": p.platform,
+                "is_dropship": p.is_dropship,
+            }
+            result = validate_product(p_dict, source_label=f"1688 {keyword}")
+            if result is not None:
+                validated.append(p)
+            else:
+                logger.info(f"  Validation thất bại [{p.id}], bỏ qua sản phẩm")
+        return validated
 
     def _extract_json_data(self, html: str) -> list[dict] | None:
         # Strategy 1: window.__NUXT__ state

@@ -2,6 +2,68 @@ from dataclasses import dataclass, field
 from typing import Optional
 from datetime import datetime
 
+from pydantic import BaseModel, field_validator, ValidationError
+
+
+class ProductSchema(BaseModel):
+    id: str
+    title_cn: str
+    price_cny: float
+    original_price_cny: float
+    image_urls: list[str] = []
+    description_cn: str = ""
+    category_name_cn: str = ""
+    attributes: dict = {}
+    variations: list[dict] = []
+    supplier_name: str = ""
+    supplier_rating: float = 0.0
+    sales_count: int = 0
+    detail_url: str = ""
+    platform: str = "1688"
+    is_dropship: bool = False
+
+    @field_validator("price_cny")
+    @classmethod
+    def price_must_be_positive(cls, v):
+        if v <= 0:
+            raise ValueError(f"price_cny phải > 0, nhận được {v}")
+        return v
+
+    @field_validator("title_cn")
+    @classmethod
+    def title_not_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError("title_cn không được để trống")
+        return v.strip()
+
+    @field_validator("description_cn")
+    @classmethod
+    def description_min_length(cls, v):
+        if len(v.strip()) < 50:
+            raise ValueError(f"description_cn phải >= 50 ký tự, nhận được {len(v.strip())}")
+        return v.strip()
+
+
+def validate_product(data: dict, source_label: str = "") -> ProductSchema | None:
+    """Validate raw product data through ProductSchema.
+    Returns ProductSchema on success, logs and returns None on failure.
+    """
+    try:
+        return ProductSchema(**data)
+    except ValidationError as e:
+        import logging
+        logger = logging.getLogger("validation")
+        errors = []
+        for err in e.errors():
+            field = ".".join(str(l) for l in err["loc"])
+            msg = err["msg"]
+            errors.append(f"  - {field}: {msg}")
+        logger.warning(
+            "⚠️ Validation thất bại [%s] id=%s:\n%s",
+            source_label, data.get("id", "?"), "\n".join(errors)
+        )
+        return None
+
 
 @dataclass
 class ProductSource:
