@@ -32,8 +32,9 @@
 
 {% if stores %}
   {% for s in stores %}
-  <div class="card" id="store-{{ s.id }}"
+    <div class="card" id="store-{{ s.id }}"
     data-crawl-max-pages-1688="{{ s.crawl_max_pages_1688 }}" data-crawl-proxy="{{ s.crawl_proxy }}"
+    data-watermark-text="{{ s.watermark_text }}" data-watermark-use-shop-name="{{ 'true' if s.watermark_use_shop_name else 'false' }}"
     data-ai-provider="{{ s.ai_provider }}" data-ai-api-key="{{ s.ai_api_key }}" data-ai-model="{{ s.ai_model }}"
     data-ai-language="{{ s.ai_language }}" data-ai-tone="{{ s.ai_tone }}" data-ai-max-title="{{ s.ai_max_title }}" data-ai-num-hashtags="{{ s.ai_num_hashtags }}">
     <div class="card-header">
@@ -194,6 +195,9 @@ function openStepConfig(storeId, step) {
   if (storeCard) {
     defaults.max_pages_1688 = storeCard.getAttribute('data-crawl-max-pages-1688') || '3';
     defaults.proxy = storeCard.getAttribute('data-crawl-proxy') || '';
+    defaults.watermark_text = storeCard.getAttribute('data-watermark-text') || '';
+    var wmUse = storeCard.getAttribute('data-watermark-use-shop-name');
+    if (wmUse !== null) defaults.watermark_use_shop_name = wmUse === 'true';
     ['ai_provider','ai_api_key','ai_model','ai_language','ai_tone','ai_max_title','ai_num_hashtags'].forEach(function(k) {
       var v = storeCard.getAttribute('data-' + k.replace(/_/g, '-'));
       if (v !== null && v !== '') defaults[k] = v;

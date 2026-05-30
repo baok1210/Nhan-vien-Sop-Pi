@@ -37,15 +37,16 @@ def new_store():
                         niche[num_field] = float(val) if '.' in val else int(val)
                     except ValueError:
                         pass
+            img_proc = data.setdefault('image_processing', {})
+            ad = img_proc.setdefault('anti_duplication', {})
+            wm = ad.setdefault('watermark', {})
             wm_text = request.form.get('wm_text', '').strip()
             if wm_text:
-                img_proc = data.setdefault('image_processing', {})
-                ad = img_proc.setdefault('anti_duplication', {})
-                wm = ad.setdefault('watermark', {})
                 wm['text'] = wm_text
-                wm_img = request.form.get('wm_image_path', '').strip()
-                if wm_img:
-                    wm['image_path'] = wm_img
+            wm_img = request.form.get('wm_image_path', '').strip()
+            if wm_img:
+                wm['image_path'] = wm_img
+            wm['use_store_name'] = request.form.get('wm_use_store_name') == 'on'
             save_store(store_id, data)
         return jsonify({'status': 'ok', 'store_id': store_id})
     return render_template('store_form.html')
@@ -115,6 +116,7 @@ def edit_store(store_id):
         except ValueError:
             pass
         wm['enabled'] = request.form.get('wm_enabled') == 'on'
+        wm['use_store_name'] = request.form.get('wm_use_store_name') == 'on'
         ai_cap = data.setdefault('ai', {}).setdefault('caption', {})
         ai_cap['provider'] = request.form.get('ai_provider', '')
         ai_cap['api_key'] = request.form.get('ai_api_key', '')

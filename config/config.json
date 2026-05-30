@@ -69,7 +69,8 @@
         "image_path": "",
         "text": "",
         "opacity": 80,
-        "size_ratio": 0.08
+        "size_ratio": 0.08,
+        "use_store_name": true
       }
     }
   },

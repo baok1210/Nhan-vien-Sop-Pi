@@ -68,7 +68,11 @@ def run_step(store_id, step):
         if 'enhance' in rp:
             config.setdefault('image_processing', {})['enhance'] = rp['enhance']
         if 'watermark' in rp:
-            config.setdefault('image_processing', {})['watermark'] = rp['watermark']
+            config.setdefault('image_processing', {}).setdefault('anti_duplication', {}).setdefault('watermark', {})['enabled'] = rp['watermark']
+        if 'watermark_use_shop_name' in rp:
+            config.setdefault('image_processing', {}).setdefault('anti_duplication', {}).setdefault('watermark', {})['use_store_name'] = rp['watermark_use_shop_name']
+        if 'watermark_text' in rp:
+            config.setdefault('image_processing', {}).setdefault('anti_duplication', {}).setdefault('watermark', {})['text'] = rp['watermark_text']
         if 'item_status' in rp:
             config.setdefault('shopee', {})['item_status'] = rp['item_status']
         if 'pre_order_days' in rp:
