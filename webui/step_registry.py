@@ -127,6 +127,8 @@ _STEP_FIELDS: dict[str, list[dict]] = {
         {'name':'bg_removal', 'label':'Xóa nền (background removal)', 'type':'checkbox', 'default':False},
         {'name':'enhance', 'label':'Tăng cường chất lượng', 'type':'checkbox', 'default':True},
         {'name':'watermark', 'label':'Thêm watermark', 'type':'checkbox', 'default':False},
+        {'name':'watermark_text', 'label':'Nội dung watermark', 'type':'text', 'default':'', 'help':'Để trống = tên store'},
+        {'name':'watermark_use_shop_name', 'label':'Dùng tên shop làm watermark', 'type':'checkbox', 'default':True},
         {'name':'quality', 'label':'Chất lượng ảnh (%)', 'type':'number', 'default':90, 'min':10, 'max':100},
     ],
     'video': [

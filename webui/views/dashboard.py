@@ -32,6 +32,7 @@ def index():
         for step in all_step_meta:
             ok, _ = check_prerequisites(sid, step['name'])
             step_states[step['name']] = ok
+        wm_cfg = data.get('image_processing', {}).get('anti_duplication', {}).get('watermark', {})
         store_data.append({
             'id': sid,
             'name': data.get('name', sid),
@@ -39,6 +40,8 @@ def index():
             'step_states': step_states,
             'crawl_max_pages_1688': data.get('sources', {}).get('1688', {}).get('max_pages', 3),
             'crawl_proxy': data.get('sources', {}).get('1688', {}).get('proxy', '') or data.get('sources', {}).get('aliexpress', {}).get('proxy', ''),
+            'watermark_text': wm_cfg.get('text', ''),
+            'watermark_use_shop_name': wm_cfg.get('use_store_name', True),
             'ai_provider': data.get('ai', {}).get('caption', {}).get('provider', ''),
             'ai_api_key': data.get('ai', {}).get('caption', {}).get('api_key', ''),
             'ai_model': data.get('ai', {}).get('caption', {}).get('model', 'gemini-flash-latest'),

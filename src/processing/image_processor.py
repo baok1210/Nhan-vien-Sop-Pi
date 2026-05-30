@@ -34,7 +34,11 @@ class ImageProcessor:
         wm = ad.get("watermark", {})
         self.wm_enabled = wm.get("enabled", True)
         self.wm_image_path = wm.get("image_path", "")
-        self.wm_text = wm.get("text", "") or config.get("name", "") or "Shop"
+        self.wm_use_store_name = wm.get("use_store_name", False)
+        if self.wm_use_store_name:
+            self.wm_text = config.get("name", "Shop")
+        else:
+            self.wm_text = wm.get("text", "") or config.get("name", "") or "Shop"
         self.wm_opacity = wm.get("opacity", 80)
         self.wm_size_ratio = wm.get("size_ratio", 0.08)
 

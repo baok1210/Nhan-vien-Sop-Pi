@@ -10,6 +10,8 @@ analysis_results.json
 
 # Data (generated — per-store product, image, video, order data)
 data/*/
+data/shopee_cookies.json
+data/research_cache.json
 data/orders_to_fulfill.json
 data/product_pool.json
 data/trend_history.json
