@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-import json, sys
+import argparse, json
 from pathlib import Path
+import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.ai.caption_gen import CaptionGenerator
@@ -10,14 +11,14 @@ from src.utils.logger import setup_logger
 logger = setup_logger("caption_script")
 
 def main():
-    if len(sys.argv) < 2:
-        print("Cách dùng: python scripts/generate_captions.py <store_id> [số_lượng]")
-        print("  Ví dụ: python scripts/generate_captions.py leo-nui 10")
-        print("  Tạo caption tiếng Việt cho sản phẩm trong data/<store_id>/")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Tao caption tieng Viet cho san pham trong data/<store_id>/")
+    parser.add_argument("store_id", help="ID cua store (vi du: leo-nui)")
+    parser.add_argument("so_luong", nargs="?", type=int, default=999,
+                        help="So luong san pham toi da (mac dinh: 999)")
+    args = parser.parse_args()
 
-    store_id = sys.argv[1]
-    max_items = int(sys.argv[2]) if len(sys.argv) > 2 else 999
+    store_id = args.store_id
+    max_items = args.so_luong
     store_dir = Path("data") / store_id
 
     # Prefer products_with_images.json, fallback to products.json

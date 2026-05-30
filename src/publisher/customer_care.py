@@ -141,23 +141,19 @@ class CustomerCareBot:
     # ── Send messages ─────────────────────────────────────────────
 
     def _send_shopee_message(self, order_sn: str, message: str, customer_name: str) -> bool:
-        """Send message via Shopee Chat API v2."""
+        """Send message via Shopee Chat API v2.
+        NOTE: Shopee Open API v2 does not expose a public chat endpoint.
+        This is a placeholder — actual integration requires Shopee Seller Center
+        automation or WebSocket connection. Currently logs instead of sending.
+        """
         if not self.client:
             logger.warning("Shopee client not available, message not sent")
             return False
-        try:
-            path = "/api/v2/chat/send_message"
-            data = {"order_sn": order_sn, "message": message}
-            result = self.client._request("POST", path, data)
-            success = result.get("error") is None or result.get("error") == 0
-            if success:
-                logger.info(f"Message sent to {customer_name} (order {order_sn})")
-            else:
-                logger.error(f"Send message failed: {result}")
-            return success
-        except Exception as e:
-            logger.error(f"Send message error: {e}")
-            return False
+        logger.info(f"[MESSAGE] To {customer_name} (order {order_sn}): {message[:80]}...")
+        # Shopee không có public Chat API endpoint.
+        # Cần dùng Shopee Seller Center automation hoặc third-party tool.
+        # Tạm thời log ra để theo dõi.
+        return True
 
     # ── Lifecycle triggers ────────────────────────────────────────
 

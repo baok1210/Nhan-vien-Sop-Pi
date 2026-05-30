@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-import json, sys
+import argparse, json
 from pathlib import Path
+import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.source.ali1688 import Ali1688Scraper
 from src.source.aliexpress import AliExpressScraper
@@ -8,13 +9,11 @@ from src.utils.logger import setup_logger
 logger = setup_logger("crawl_script")
 
 def main():
-    if len(sys.argv) < 2:
-        print("Cách dùng: python scripts/crawl_products.py <store_id>")
-        print("  Ví dụ: python scripts/crawl_products.py leo-nui")
-        print("  Crawl sản phẩm từ 1688 và/hoặc AliExpress cho store.")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Crawl san pham tu 1688 va/hoac AliExpress cho store")
+    parser.add_argument("store_id", help="ID của store (ví dụ: leo-nui)")
+    args = parser.parse_args()
 
-    store_id = sys.argv[1]
+    store_id = args.store_id
     cfg_path = Path("config/stores") / f"{store_id}.json"
     if not cfg_path.exists():
         logger.error(f"Không tìm thấy cấu hình store: {cfg_path}")

@@ -1,36 +1,47 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="flex mb-12">
-  <a href="/" class="btn btn-sm" style="background:#eee">&larr; Về dashboard</a>
-  <h2>Sản phẩm: {{ store_id }}</h2>
+<div class="flex" style="margin-bottom:24px">
+  <a href="/" class="step-btn" style="margin-right:4px">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M7.5 2.5L4 6l3.5 3.5"/></svg>
+    Dashboard
+  </a>
+  <h1 style="font-size:18px">Sản phẩm: <span style="color:var(--accent)">{{ store_id }}</span></h1>
+  <span class="badge badge-accent" style="margin-left:auto">{{ products|length }} sản phẩm</span>
 </div>
 
 {% if products %}
+  <div style="display:flex;flex-direction:column;gap:12px">
   {% for p in products %}
-  <div class="card" style="padding:14px">
-    <div class="flex" style="justify-content:space-between">
-      <div>
-        <strong>{{ p.title_vi or p.title_cn or 'Không có tên' }}</strong><br>
-        <span class="muted">
-          Giá: {{ p.price_cny }}¥ / {{ '{:,}'.format(p.price_vnd|int) if p.price_vnd else '?' }}₫ |
-          {% if p.hashtags %}{{ p.hashtags[:5]|join(', ') }}{% endif %}
-        </span>
+  <div class="card" style="padding:16px 20px">
+    <div class="flex" style="justify-content:space-between;align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500;font-size:14px;margin-bottom:4px;color:var(--text);line-height:1.4">{{ p.title_vi or p.title_cn or 'Không có tên' }}</div>
+        <div class="flex gap-sm" style="font-size:13px;color:var(--text-secondary);flex-wrap:wrap">
+          <span>Giá: <strong style="color:var(--text)">{{ p.price_cny }}¥</strong>
+          {%- if p.price_vnd %} / <strong style="color:var(--success)">{{ '{:,}'.format(p.price_vnd|int) }}₫</strong>{% endif %}</span>
+          {% if p.hashtags %}<span class="badge badge-accent">{{ p.hashtags[:3]|join(', ') }}{% if p.hashtags|length > 3 %}…{% endif %}</span>{% endif %}
+        </div>
+        {% if p.bullet_points %}
+        <ul style="margin-top:6px;font-size:13px;color:var(--text-secondary);padding-left:16px">
+          {% for b in p.bullet_points[:3] %}<li style="margin-bottom:2px">{{ b }}</li>{% endfor %}
+        </ul>
+        {% endif %}
       </div>
-      <div class="muted" style="text-align:right;font-size:12px">
-        {{ p.product_id }}<br>
-        {% if p.images_processed %}{{ p.images_processed|length }} ảnh{% endif %}
+      <div class="text-sm muted text-right" style="flex-shrink:0;margin-left:16px">
+        <div style="font-family:monospace;font-size:12px">{{ p.product_id }}</div>
+        {% if p.images_processed %}<div style="margin-top:2px;font-size:12px;color:var(--text-muted)">{{ p.images_processed|length }} ảnh</div>{% endif %}
       </div>
     </div>
-    {% if p.bullet_points %}
-    <ul style="margin-top:6px;margin-left:16px;font-size:13px;color:#555">
-      {% for b in p.bullet_points[:3] %}<li>{{ b }}</li>{% endfor %}
-    </ul>
-    {% endif %}
   </div>
   {% endfor %}
+  </div>
 {% else %}
-<div class="card text-center muted" style="padding:40px">
-  Chưa có sản phẩm. Chạy crawl trước.
+<div class="card empty-state">
+  <div class="empty-state-icon">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+  </div>
+  <p>Chưa có sản phẩm.</p>
+  <span class="muted" style="font-size:13px">Chạy crawl trước trên Dashboard.</span>
 </div>
 {% endif %}
 {% endblock %}

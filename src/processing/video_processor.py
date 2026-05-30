@@ -1,4 +1,4 @@
-import asyncio, random, subprocess
+import asyncio, random, subprocess, shutil
 from pathlib import Path
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,6 +18,8 @@ class VideoProcessor:
         self.volume = float(cfg.get("volume", 0.3))
         self._bgm_cache: list[Path] | None = None
         self._bgm_dur_cache: dict[str, float] = {}
+        if not shutil.which("ffmpeg"):
+            logger.warning("ffmpeg not found in PATH. Video processing will fail. Install ffmpeg or add to PATH.")
 
     def _scan_bgm(self) -> list[Path]:
         if self._bgm_cache is not None:

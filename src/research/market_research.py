@@ -8,6 +8,19 @@ logger = setup_logger("market_research")
 
 RESEARCH_CACHE = Path("data/research_cache.json")
 POOL_FILE = Path("data/product_pool.json")
+SHOPEE_COOKIE_FILE = Path("data/shopee_cookies.json")
+
+
+def _load_shopee_cookies() -> dict | None:
+    if SHOPEE_COOKIE_FILE.exists():
+        try:
+            raw = json.loads(SHOPEE_COOKIE_FILE.read_text(encoding="utf-8"))
+            if isinstance(raw, list):
+                return {c["name"]: c["value"] for c in raw if "name" in c and "value" in c}
+        except Exception:
+            pass
+    return None
+
 
 SHOPEE_CATEGORIES = [
     {"id": 1, "name": "Điện thoại & Phụ kiện", "icon": "📱"},
@@ -84,11 +97,15 @@ def _save_cache(data: dict):
 
 
 def _search_shopee_category(keyword: str, max_results: int = 30) -> list[dict]:
+    cookies = _load_shopee_cookies()
+    cookie_str = "; ".join(f"{k}={v}" for k, v in (cookies or {}).items()) if cookies else ""
+
     try:
         from curl_cffi import requests as curl_requests
     except ImportError:
         logger.warning("curl_cffi not installed, fallback to httpx")
-        return _search_shopee_httpx(keyword, max_results)
+        return _search_shopee_httpx(keyword, max_results, cookie_str)
+
     s = curl_requests.Session()
     s.impersonate = "chrome123"
     headers = {
@@ -96,6 +113,8 @@ def _search_shopee_category(keyword: str, max_results: int = 30) -> list[dict]:
         "Accept": "application/json",
         "Referer": f"https://shopee.vn/search?keyword={urllib.parse.quote(keyword)}",
     }
+    if cookie_str:
+        headers["Cookie"] = cookie_str
     url = (
         "https://shopee.vn/api/v4/search/search_items"
         f"?by=relevancy&keyword={urllib.parse.quote(keyword)}"
@@ -104,40 +123,107 @@ def _search_shopee_category(keyword: str, max_results: int = 30) -> list[dict]:
     try:
         resp = s.get(url, headers=headers, timeout=20)
         if resp.status_code != 200:
-            return []
+            return _search_shopee_playwright(keyword, max_results) if resp.status_code == 403 else []
         data = resp.json()
         if data.get("error") not in (None, 0):
-            return []
+            return _search_shopee_playwright(keyword, max_results)
         items = data.get("items", [])
-        extracted = []
-        for item in items:
-            ib = item.get("item_brief", item)
-            pm = ib.get("price_min", 0)
-            if pm:
-                extracted.append({
-                    "name": ib.get("name", ""),
-                    "price_min": pm / 100000,
-                    "price_max": (ib.get("price_max", pm) or pm) / 100000,
-                    "historical_sold": ib.get("historical_sold", 0),
-                    "shopid": str(ib.get("shopid", "")),
-                    "itemid": str(ib.get("itemid", "")),
-                    "rating": ib.get("item_rating", {}).get("rating_star", 0) if isinstance(ib.get("item_rating"), dict) else 0,
-                })
-        return extracted
+        extracted = _parse_shopee_items(items)
+        if extracted:
+            return extracted
+        return _search_shopee_playwright(keyword, max_results)
     except Exception as e:
         logger.debug(f"Shopee search failed for '{keyword[:30]}': {e}")
-        return []
+        return _search_shopee_playwright(keyword, max_results)
     finally:
         s.close()
 
 
-def _search_shopee_httpx(keyword: str, max_results: int = 30) -> list[dict]:
+def _parse_shopee_items(items: list) -> list[dict]:
+    extracted = []
+    for item in items:
+        ib = item.get("item_brief", item)
+        pm = ib.get("price_min", 0)
+        if pm:
+            extracted.append({
+                "name": ib.get("name", ""),
+                "price_min": pm / 100000,
+                "price_max": (ib.get("price_max", pm) or pm) / 100000,
+                "historical_sold": ib.get("historical_sold", 0),
+                "shopid": str(ib.get("shopid", "")),
+                "itemid": str(ib.get("itemid", "")),
+                "rating": ib.get("item_rating", {}).get("rating_star", 0) if isinstance(ib.get("item_rating"), dict) else 0,
+            })
+    return extracted
+
+
+def _search_shopee_playwright(keyword: str, max_results: int = 30) -> list[dict]:
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.warning("playwright not installed, skip playwright search")
+        return []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            ctx = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
+                locale="vi-VN",
+            )
+            cookies = _load_shopee_cookies()
+            if cookies:
+                from playwright.sync_api import Cookie
+                ctx.add_cookies([
+                    {"name": k, "value": v, "domain": ".shopee.vn", "path": "/"}
+                    for k, v in cookies.items()
+                ])
+            page = ctx.new_page()
+            page.goto(
+                f"https://shopee.vn/search?keyword={urllib.parse.quote(keyword)}",
+                timeout=30000, wait_until="domcontentloaded"
+            )
+            page.wait_for_timeout(5000)
+            items = page.query_selector_all("[data-sqe='item']")
+            if not items:
+                items = page.query_selector_all(".shopee-search-item-result__item")
+            extracted = []
+            for el in items[:max_results]:
+                try:
+                    name_el = el.query_selector("div[data-sqe='name'] a")
+                    if not name_el:
+                        name_el = el.query_selector("a")
+                    name = name_el.inner_text().strip() if name_el else ""
+                    price_str = el.inner_text()
+                    import re
+                    prices = re.findall(r'[\d,.]+', price_str.replace(".", "").replace(",", "."))
+                    price_min = float(prices[0]) if prices else 0
+                    extracted.append({
+                        "name": name,
+                        "price_min": price_min,
+                        "price_max": price_min,
+                        "historical_sold": 0,
+                        "shopid": "",
+                        "itemid": "",
+                        "rating": 0,
+                    })
+                except Exception:
+                    continue
+            browser.close()
+            return extracted
+    except Exception as e:
+        logger.debug(f"Playwright search failed for '{keyword[:30]}': {e}")
+        return []
+
+
+def _search_shopee_httpx(keyword: str, max_results: int = 30, cookie_str: str = "") -> list[dict]:
     try:
         import httpx
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
             "Accept": "application/json",
         }
+        if cookie_str:
+            headers["Cookie"] = cookie_str
         url = (
             "https://shopee.vn/api/v4/search/search_items"
             f"?by=relevancy&keyword={urllib.parse.quote(keyword)}"
@@ -145,29 +231,18 @@ def _search_shopee_httpx(keyword: str, max_results: int = 30) -> list[dict]:
         )
         resp = httpx.get(url, headers=headers, timeout=20, follow_redirects=True)
         if resp.status_code != 200:
-            return []
+            return _search_shopee_playwright(keyword, max_results) if resp.status_code == 403 else []
         data = resp.json()
         if data.get("error") not in (None, 0):
-            return []
+            return _search_shopee_playwright(keyword, max_results)
         items = data.get("items", [])
-        extracted = []
-        for item in items:
-            ib = item.get("item_brief", item)
-            pm = ib.get("price_min", 0)
-            if pm:
-                extracted.append({
-                    "name": ib.get("name", ""),
-                    "price_min": pm / 100000,
-                    "price_max": (ib.get("price_max", pm) or pm) / 100000,
-                    "historical_sold": ib.get("historical_sold", 0),
-                    "shopid": str(ib.get("shopid", "")),
-                    "itemid": str(ib.get("itemid", "")),
-                    "rating": ib.get("item_rating", {}).get("rating_star", 0) if isinstance(ib.get("item_rating"), dict) else 0,
-                })
-        return extracted
+        extracted = _parse_shopee_items(items)
+        if extracted:
+            return extracted
+        return _search_shopee_playwright(keyword, max_results)
     except Exception as e:
         logger.debug(f"HTTPS search failed for '{keyword[:30]}': {e}")
-        return []
+        return _search_shopee_playwright(keyword, max_results)
 
 
 def _load_pool_products() -> list[dict]:

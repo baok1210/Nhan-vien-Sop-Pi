@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 from typing import Optional
@@ -291,6 +292,57 @@ class CaptionGenerator:
                 "bullet_points": [],
                 "hashtags": [],
             }
+
+
+class CachedCaptionGenerator:
+    def __init__(self, underlying: CaptionGenerator, cache_dir: str = ""):
+        self.underlying = underlying
+        self.cache_dir = Path(cache_dir) if cache_dir else Path("data/_caption_cache")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._memory: dict[str, dict] = {}
+
+    @staticmethod
+    def _make_key(title_cn: str, category: str, price_cny: float, features: str, price_vnd: float) -> str:
+        raw = f"{title_cn}|{category}|{price_cny}|{features}|{price_vnd}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+    def _disk_path(self, key: str) -> Path:
+        return self.cache_dir / f"{key}.json"
+
+    def generate(self, title_cn: str, category: str = "", price_cny: float = 0,
+                 features: str = "", price_vnd: float = 0) -> dict:
+        key = self._make_key(title_cn, category, price_cny, features, price_vnd)
+        if key in self._memory:
+            logger.info(f"Caption cache HIT (memory): {title_cn[:40]}...")
+            return self._memory[key]
+        disk = self._disk_path(key)
+        if disk.exists():
+            try:
+                with open(disk, encoding="utf-8") as f:
+                    cached = json.load(f)
+                self._memory[key] = cached
+                logger.info(f"Caption cache HIT (disk): {title_cn[:40]}...")
+                return cached
+            except Exception:
+                pass
+        logger.info(f"Caption cache MISS: {title_cn[:40]}...")
+        result = self.underlying.generate(title_cn, category, price_cny, features, price_vnd)
+        self._memory[key] = result
+        try:
+            with open(disk, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to write caption cache: {e}")
+        return result
+
+    def clear_store_cache(self, store_id: str):
+        store_dir = Path("data") / store_id
+        for f in store_dir.glob("captions*.json"):
+            try:
+                f.unlink()
+            except Exception:
+                pass
+        logger.info(f"Caption cache cleared for store: {store_id}")
 
 
 _CATEGORY_BULLETS = {
