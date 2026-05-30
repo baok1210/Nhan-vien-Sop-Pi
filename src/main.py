@@ -1,4 +1,4 @@
-import json, os
+import argparse, json, os
 import sys
 from pathlib import Path
 from src.source.ali1688 import Ali1688Scraper
@@ -100,11 +100,11 @@ def validate_config(config: dict) -> list[str]:
     return warnings
 
 
-def run_crawl(config: dict):
+def run_crawl(config: dict, store_id: str = "default"):
     logger.info("=== GIAI ĐOẠN 1: CRAWL SẢN PHẨM ===")
     all_products = []
 
-    src_1688 = config.get("source", {}).get("1688", {})
+    src_1688 = config.get("source", {}).get("1688", {}) or config.get("sources", {}).get("1688", {})
     if src_1688.get("enabled", True):
         keywords = config.get("niche", {}).get("keywords_cn", [])
         if keywords:
@@ -114,7 +114,7 @@ def run_crawl(config: dict):
             finally:
                 scraper.close()
 
-    src_ae = config.get("source", {}).get("aliexpress", {})
+    src_ae = config.get("source", {}).get("aliexpress", {}) or config.get("sources", {}).get("aliexpress", {})
     if src_ae.get("enabled", True):
         keywords = config.get("niche", {}).get("keywords_en", [])
         if keywords:
@@ -132,7 +132,7 @@ def run_crawl(config: dict):
                 finally:
                     scraper.close()
 
-    data_dir = Path("data/raw")
+    data_dir = Path("data") / store_id
     data_dir.mkdir(parents=True, exist_ok=True)
     output = []
     for p in all_products:
@@ -153,7 +153,7 @@ def run_crawl(config: dict):
         })
     with open(data_dir / "products.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    logger.info(f"Đã lưu {len(output)} sản phẩm vào data/raw/products.json")
+    logger.info(f"Đã lưu {len(output)} sản phẩm vào {data_dir / 'products.json'}")
     return all_products
 
 
@@ -218,18 +218,23 @@ def run_publish(config: dict, products: list[ProductProcessed]):
 
 
 if __name__ == "__main__":
-    config_path = sys.argv[1] if len(sys.argv) > 1 else "config/config.json"
-    print("=" * 60)
-    print("  CHINA DROPSHIP TO SHOPEE - Pipeline tự động")
-    print("=" * 60)
+    parser = argparse.ArgumentParser(description="CHINA DROPSHIP TO SHOPEE - Pipeline tu dong")
+    parser.add_argument("store_id", nargs="?", default="",
+                        help="ID cua store (vi du: leo-nui). Neu bo trong, dung config/config.json")
+    args = parser.parse_args()
 
-    if not Path(config_path).exists():
-        print(f"\n\u274c Không tìm thấy file cấu hình: {config_path}")
-        print("   Chạy lệnh sau để tạo cấu hình:")
-        print("   \u2592 python scripts/config_wizard.py")
-        sys.exit(1)
-
-    config = load_config(config_path)
+    store_id = args.store_id
+    if not store_id:
+        config_path = "config/config.json"
+        config = load_config(config_path)
+    else:
+        config_path = f"config/stores/{store_id}.json"
+        if not Path(config_path).exists():
+            print(f"\n\u274c Không tìm thấy store: {config_path}")
+            print("   Tạo store mới qua Web UI hoặc chạy python scripts/config_wizard.py")
+            sys.exit(1)
+        with open(config_path, encoding="utf-8") as f:
+            config = json.load(f)
 
     warnings = validate_config(config)
     if warnings:
@@ -238,7 +243,7 @@ if __name__ == "__main__":
             print(f"  \u26a0\ufe0f {w}")
         print()
 
-    products = run_crawl(config)
+    products = run_crawl(config, store_id or "default")
     if products:
         run_process_images(config, products)
         processed = run_generate_captions(config, products)

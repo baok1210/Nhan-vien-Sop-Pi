@@ -7,13 +7,15 @@ echo   WEB UI - China Dropship to Shopee
 echo ============================================================
 echo.
 echo  Dang khoi dong Web UI...
-echo  Mo trinh duyet: http://localhost:7860
-echo  Nhan Ctrl+C de dung
+echo  Mo trinh duyet: http://localhost:5000
+echo.
+echo  Web UI dung Flask (day du tinh nang)
+echo  Neu muon dung FastAPI (cu): python scripts\run_web.py
 echo.
 
 set PYTHONIOENCODING=utf-8
 
-python scripts\run_web.py
+python webui\app.py
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

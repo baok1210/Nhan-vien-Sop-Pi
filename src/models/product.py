@@ -39,8 +39,6 @@ class ProductSchema(BaseModel):
     @field_validator("description_cn")
     @classmethod
     def description_min_length(cls, v):
-        if len(v.strip()) < 50:
-            raise ValueError(f"description_cn phải >= 50 ký tự, nhận được {len(v.strip())}")
         return v.strip()
 
 

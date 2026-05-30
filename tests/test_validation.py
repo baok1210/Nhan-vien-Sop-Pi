@@ -72,7 +72,8 @@ def test_whitespace_title():
         ProductSchema(**data)
 
 
-def test_short_description():
+def test_short_description_accepted():
+    """Short description is now accepted (previously required >=50 chars)."""
     data = {
         "id": "103",
         "title_cn": "产品名称",
@@ -80,8 +81,8 @@ def test_short_description():
         "original_price_cny": 30.0,
         "description_cn": "ngắn",
     }
-    with pytest.raises(ValidationError, match="description_cn.*50"):
-        ProductSchema(**data)
+    result = ProductSchema(**data)
+    assert result.description_cn == "ngắn"
 
 
 def test_validate_product_valid():

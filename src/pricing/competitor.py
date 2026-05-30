@@ -36,7 +36,7 @@ def search_shopee_products(
 
 
 def _try_cookie_method(keyword: str, cookies: Optional[dict], max_results: int) -> list[dict]:
-    if not cookies:
+    if not cookies or not any(v for v in cookies.values() if v):
         logger.debug("No Shopee cookies available for cookie method")
         return []
 

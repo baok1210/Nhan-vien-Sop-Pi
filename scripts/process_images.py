@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-import json, sys
+import argparse, json
 from pathlib import Path
+import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.processing.image_processor import ImageProcessor
 from src.utils.logger import setup_logger
 logger = setup_logger("image_script")
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python scripts/process_images.py <store_id> [max_products]")
-        print("  Download and process images for all products in data/<store_id>/products.json")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Download and process images for a store")
+    parser.add_argument("store_id", help="ID cua store (vi du: leo-nui)")
+    parser.add_argument("max_products", nargs="?", type=int, default=999,
+                        help="So luong san pham toi da (mac dinh: 999)")
+    args = parser.parse_args()
 
-    store_id = sys.argv[1]
-    max_items = int(sys.argv[2]) if len(sys.argv) > 2 else 999
+    store_id = args.store_id
+    max_items = args.max_products
     store_dir = Path("data") / store_id
     prod_path = store_dir / "products.json"
 
