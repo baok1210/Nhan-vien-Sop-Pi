@@ -39,7 +39,7 @@ def index():
             'product_count': product_count,
             'step_states': step_states,
             'crawl_max_pages_1688': data.get('sources', {}).get('1688', {}).get('max_pages', 3),
-            'crawl_proxy': data.get('sources', {}).get('1688', {}).get('proxy', '') or data.get('sources', {}).get('aliexpress', {}).get('proxy', ''),
+            'crawl_proxies': '\n'.join(data.get('sources', {}).get('1688', {}).get('proxies', []) or []),
             'watermark_text': wm_cfg.get('text', ''),
             'watermark_use_shop_name': wm_cfg.get('use_store_name', True),
             'ai_provider': data.get('ai', {}).get('caption', {}).get('provider', ''),

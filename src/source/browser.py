@@ -1,18 +1,52 @@
 """Browser automation manager using Patchright (Playwright fork with anti-detection).
-100% bypass rate on browsers-benchmark (vs 60% plain Playwright, 90% CloakBrowser).
+Auto-installs Playwright browsers on first use — no manual setup needed.
 """
+import subprocess, sys
 from src.utils.logger import setup_logger
 
 logger = setup_logger("browser")
-
 _pw = None
+
+
+def _install_browsers():
+    """Auto-install Playwright browsers (needed by Patchright)."""
+    logger.info("⏳ Đang cài Chromium cho Patchright...")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            check=True, capture_output=True, timeout=180,
+        )
+        logger.info("✅ Đã cài Chromium xong")
+    except subprocess.CalledProcessError:
+        logger.warning("⚠️  playwright install thất bại, thử phương án dự phòng...")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "playwright", "install", "--force", "chromium"],
+                check=True, capture_output=True, timeout=180,
+            )
+            logger.info("✅ Đã cài Chromium (force) xong")
+        except Exception as e:
+            logger.error(f"❌ Không thể cài Chromium: {e}")
+            raise
 
 
 def _get_pw():
     global _pw
     if _pw is None:
-        from patchright.sync_api import sync_playwright
-        _pw = sync_playwright().start()
+        try:
+            from patchright.sync_api import sync_playwright
+        except ImportError:
+            logger.warning("Patchright chưa cài, đang cài tự động...")
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "patchright"],
+                check=True, capture_output=True, timeout=60,
+            )
+            from patchright.sync_api import sync_playwright
+        try:
+            _pw = sync_playwright().start()
+        except Exception:
+            _install_browsers()
+            _pw = sync_playwright().start()
     return _pw
 
 

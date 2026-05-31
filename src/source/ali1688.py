@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 from curl_cffi import requests as curl_requests
 from src.models.product import ProductSource, validate_product
 from src.utils.logger import setup_logger
+from src.utils.proxy_manager import ProxyManager
 
 logger = setup_logger("1688_scraper")
 
@@ -52,7 +53,7 @@ class Ali1688Scraper:
         self.max_pages = config.get("max_pages", 3)
         self.delay = config.get("delay_seconds", 3)
         self.dropship_only = config.get("dropship_filter", True)
-        self.proxy = config.get("proxy", "")
+        self.proxy_mgr = ProxyManager.from_config(config, "1688")
         self._session = curl_requests.Session()
         self._session.impersonate = "chrome120"
         self._browser_mgr = None
@@ -107,49 +108,85 @@ class Ali1688Scraper:
         url = f"{self.SEARCH_URL}?{urlencode(params)}"
         referer = f"{self.SEARCH_URL}?keywords={urlencode({'': keyword})[1:]}"
 
-        for attempt in range(3):
+        max_attempts = max(len(self.proxy_mgr.available), 1) * 3
+        for attempt in range(max_attempts):
             try:
                 resp = self._session.get(
                     url, headers=self._headers(referer), timeout=30
                 )
                 resp.raise_for_status()
                 html = resp.text
-                if len(html) < 5000 or "验证" in html[:2000] or "安全验证" in html[:2000]:
+                if len(html) < 5000 or self._is_blocked(html):
                     logger.warning(f"1688 CAPTCHA/anti-bot cho '{keyword}' (attempt {attempt+1})")
-                    if attempt < 2:
-                        time.sleep(random.uniform(5, 10) * (attempt + 1))
-                        continue
-                    return self._search_with_playwright(keyword, page)
+                    self.proxy_mgr.mark_failed()
+                    self._renew_session()
+                    time.sleep(random.uniform(3, 8))
+                    continue
                 return self._parse_products(html, keyword)
             except Exception as e:
                 logger.error(f"1688 lỗi '{keyword}' trang {page} (attempt {attempt+1}): {e}")
-                if attempt < 2:
-                    time.sleep(random.uniform(5, 10) * (attempt + 1))
-                else:
-                    if "CAPTCHA" in str(e) or "captcha" in str(e):
-                        return self._search_with_playwright(keyword, page)
+                if self._is_blocked(str(e)):
+                    self.proxy_mgr.mark_failed()
+                    self._renew_session()
+                time.sleep(random.uniform(3, 8))
+        if self._browser_mgr is None:
+            return self._search_with_playwright(keyword, page)
         return []
 
+    def _renew_session(self):
+        self._session = curl_requests.Session()
+        self._session.impersonate = "chrome120"
+        proxy = self.proxy_mgr.get() if self.proxy_mgr.has_proxy else None
+        if proxy:
+            self._session.proxies = {"http": proxy, "https": proxy}
+        self._session.cookies.update(getattr(self, '_cookies', {}))
+
+    def _is_blocked(self, html: str) -> bool:
+        signals = [
+            len(html) < 10000,
+            "x5sec" in html.lower()[:5000],
+            "punish" in html.lower()[:5000],
+            "qrcode" in html.lower()[:5000],
+            "awsc" in html.lower()[:5000],
+            "captcha" in html.lower()[:3000],
+            "验证" in html[:3000],
+            "安全验证" in html[:3000],
+            "机器人" in html[:3000],
+        ]
+        return any(signals)
+
     def _search_with_playwright(self, keyword: str, page: int = 1) -> list[ProductSource]:
-        try:
-            from src.source.browser import BrowserManager
-            if self._browser_mgr is None:
-                self._browser_mgr = BrowserManager(headless=True, proxy=self.proxy or None)
-                self._browser_mgr.start()
-            import random as _r
-            ctx, page_obj = self._browser_mgr.new_page()
+        for pw_attempt in range(max(len(self.proxy_mgr.available), 1) * 2):
+            try:
+                from src.source.browser import BrowserManager
+                proxy = self.proxy_mgr.get() if self.proxy_mgr.has_proxy else None
+                if self._browser_mgr is None:
+                    self._browser_mgr = BrowserManager(headless=True, proxy=proxy)
+                    self._browser_mgr.start()
+                ctx, page_obj = self._browser_mgr.new_page()
 
-            params = {"keywords": keyword, "n": "y", "pageNum": page}
-            url = f"{self.SEARCH_URL}?{urlencode(params)}"
-            page_obj.goto(url, timeout=60000, wait_until="domcontentloaded")
-            page_obj.wait_for_timeout(random.randint(3000, 5000))
-            html = page_obj.content()
+                params = {"keywords": keyword, "n": "y", "pageNum": page}
+                url = f"{self.SEARCH_URL}?{urlencode(params)}"
+                page_obj.goto(url, timeout=60000, wait_until="domcontentloaded")
+                page_obj.wait_for_timeout(random.randint(3000, 5000))
+                html = page_obj.content()
 
-            ctx.close()
-            return self._parse_products(html, keyword)
-        except Exception as e:
-            logger.error(f"Playwright 1688 search failed: {e}")
-            return []
+                ctx.close()
+                if len(html) > 10000 and not self._is_blocked(html):
+                    return self._parse_products(html, keyword)
+                logger.warning(f"Playwright bị chặn (attempt {pw_attempt+1})")
+                self.proxy_mgr.mark_failed(proxy)
+                if self._browser_mgr:
+                    self._browser_mgr.stop()
+                    self._browser_mgr = None
+            except Exception as e:
+                logger.error(f"Playwright 1688 search failed: {e}")
+                self.proxy_mgr.mark_failed(proxy)
+                if self._browser_mgr:
+                    self._browser_mgr.stop()
+                    self._browser_mgr = None
+        logger.warning("1688 chặn truy cập (IP bị block). Cần proxy sạch Trung Quốc hoặc cookie đăng nhập.")
+        return []
 
     def _parse_products(self, html: str, keyword: str = "") -> list[ProductSource]:
         products = []

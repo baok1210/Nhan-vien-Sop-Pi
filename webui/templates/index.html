@@ -33,7 +33,7 @@
 {% if stores %}
   {% for s in stores %}
     <div class="card" id="store-{{ s.id }}"
-    data-crawl-max-pages-1688="{{ s.crawl_max_pages_1688 }}" data-crawl-proxy="{{ s.crawl_proxy }}"
+    data-crawl-max-pages-1688="{{ s.crawl_max_pages_1688 }}" data-crawl-proxies="{{ s.crawl_proxies }}"
     data-watermark-text="{{ s.watermark_text }}" data-watermark-use-shop-name="{{ 'true' if s.watermark_use_shop_name else 'false' }}"
     data-ai-provider="{{ s.ai_provider }}" data-ai-api-key="{{ s.ai_api_key }}" data-ai-model="{{ s.ai_model }}"
     data-ai-language="{{ s.ai_language }}" data-ai-tone="{{ s.ai_tone }}" data-ai-max-title="{{ s.ai_max_title }}" data-ai-num-hashtags="{{ s.ai_num_hashtags }}">
@@ -194,7 +194,7 @@ function openStepConfig(storeId, step) {
   var defaults = {};
   if (storeCard) {
     defaults.max_pages_1688 = storeCard.getAttribute('data-crawl-max-pages-1688') || '3';
-    defaults.proxy = storeCard.getAttribute('data-crawl-proxy') || '';
+    defaults.proxies = storeCard.getAttribute('data-crawl-proxies') || '';
     defaults.watermark_text = storeCard.getAttribute('data-watermark-text') || '';
     var wmUse = storeCard.getAttribute('data-watermark-use-shop-name');
     if (wmUse !== null) defaults.watermark_use_shop_name = wmUse === 'true';
@@ -203,7 +203,17 @@ function openStepConfig(storeId, step) {
       if (v !== null && v !== '') defaults[k] = v;
     });
   }
-  var html = '';
+  var     html = '';
+  // Warning banner for crawl step
+  if (step === 'crawl') {
+    html += '<div style="background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;line-height:1.6">'
+      + '<strong style="color:#92400E">⚠️ AliExpress & 1688 thường chặn IP datacenter</strong>'
+      + '<ul style="margin:8px 0 0;padding-left:16px;color:#92400E">'
+      + '<li><strong>Proxy sạch:</strong> Nhập proxy vào ô bên dưới. Dùng proxy tĩnh IP Việt Nam (FPT/VNPT) hoặc dịch vụ trả phí (BrightData, Oxylabs).</li>'
+      + '<li><strong>Cookie đăng nhập:</strong> Vào Chrome thật → đăng nhập 1688.com / aliexpress.com → F12 Console → paste code (bấm Copy bên dưới) → Enter → copy kết quả → paste vào ô cookies. Hoặc vào trang <a href="/research" style="color:#92400E;text-decoration:underline">Nghiên cứu</a> để mở browser tự động.</li>'
+      + '<li><strong>Nhập thủ công:</strong> Thêm sản phẩm bằng form hoặc import CSV/JSON ở trang <a href="/products/' + storeId + '" style="color:#92400E;text-decoration:underline">Sản phẩm</a>.</li>'
+      + '</ul></div>';
+  }
   meta.fields.forEach(function(f) {
     if (f.type === 'separator') {
       html += '<div class="separator">' + f.label + '</div>';

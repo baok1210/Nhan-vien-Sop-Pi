@@ -3,6 +3,7 @@ from urllib.parse import urlencode
 from curl_cffi import requests as curl_requests
 from src.models.product import ProductSource
 from src.utils.logger import setup_logger
+from src.utils.proxy_manager import ProxyManager
 
 logger = setup_logger("aliexpress_scraper")
 
@@ -20,7 +21,7 @@ class AliExpressScraper:
     def __init__(self, config: dict):
         self.max_pages = config.get("max_pages", 3)
         self.delay = config.get("delay_seconds", 2)
-        self.proxy = config.get("proxy")
+        self.proxy_mgr = ProxyManager.from_config(config, "aliexpress")
         self.cookies = config.get("cookies")
         self._session = self._new_session()
         self._browser_mgr = None
@@ -28,8 +29,9 @@ class AliExpressScraper:
     def _new_session(self):
         s = curl_requests.Session()
         s.impersonate = random.choice(["chrome120", "chrome110", "chrome107", "chrome99"])
-        if self.proxy:
-            s.proxies = {"http": self.proxy, "https": self.proxy}
+        proxy = self.proxy_mgr.get() if self.proxy_mgr.has_proxy else None
+        if proxy:
+            s.proxies = {"http": proxy, "https": proxy}
         if self.cookies:
             for c in self.cookies if isinstance(self.cookies, list) else [self.cookies]:
                 if isinstance(c, dict) and "name" in c and "value" in c:
@@ -47,31 +49,26 @@ class AliExpressScraper:
         params = {kw: v for kw, v in {"SearchText": keyword, "page": page}.items() if v}
         url = f"{self.SEARCH_URL}?{urlencode(params)}"
 
-        for attempt in range(3):
+        max_attempts = max(len(self.proxy_mgr.available), 1) * 3
+        for attempt in range(max_attempts):
             try:
                 if attempt > 0:
-                    delay = random.uniform(5.0 * attempt, 10.0 * attempt)
-                    logger.info(f"  Retry {attempt+1}/3 sau {delay:.0f}s...")
+                    delay = random.uniform(3.0, 8.0)
+                    logger.info(f"  Retry {attempt+1}/{max_attempts} sau {delay:.0f}s...")
                     time.sleep(delay)
                     self._session = self._new_session()
                 resp = self._session.get(url, headers=self._headers(), timeout=30)
                 resp.raise_for_status()
                 html = resp.text
 
-                anti_bot_signals = [
-                    len(html) < 10000,
-                    "x5sec" in html[:5000],
-                    "verify" in html[:3000].lower(),
-                    "机器人" in html[:3000],
-                    "captcha" in html[:3000].lower(),
-                ]
-                if any(anti_bot_signals):
+                if self._is_blocked(html):
                     logger.warning(f"AliExpress anti-bot (attempt {attempt+1}) cho '{keyword}'")
+                    self.proxy_mgr.mark_failed()
+                    self._session = self._new_session()
                     continue
 
                 products = self._parse_products(html)
                 if products:
-                    # Check if data is valid (has prices and URLs)
                     valid = any(p.price_cny > 0 and p.detail_url for p in products)
                     if valid:
                         logger.info(f"AliExpress: {len(products)} sp từ '{keyword}' trang {page}")
@@ -81,6 +78,8 @@ class AliExpressScraper:
                 return []
             except Exception as e:
                 logger.error(f"AliExpress lỗi '{keyword}' trang {page} (attempt {attempt+1}): {e}")
+                self.proxy_mgr.mark_failed()
+                self._session = self._new_session()
         logger.warning(f"curl_cffi failed, trying Playwright cho '{keyword}'...")
         return self._search_with_playwright(keyword, page)
 
@@ -434,27 +433,52 @@ class AliExpressScraper:
                 continue
         return products
 
+    def _is_blocked(self, html: str) -> bool:
+        signals = [
+            len(html) < 10000,
+            "x5sec" in html.lower()[:5000],
+            "punish" in html.lower()[:5000],
+            "qrcode" in html.lower()[:5000],
+            "awsc" in html.lower()[:5000],
+            "captcha" in html.lower()[:3000],
+            "verify" in html.lower()[:3000],
+            "机器人" in html[:3000],
+            "安全验证" in html[:3000],
+        ]
+        return any(signals)
+
     def _search_with_playwright(self, keyword: str, page: int = 1) -> list[ProductSource]:
-        try:
-            from src.source.browser import BrowserManager
-            if self._browser_mgr is None:
-                self._browser_mgr = BrowserManager(headless=True, proxy=self.proxy or None)
-                self._browser_mgr.start()
-            ctx, page_obj = self._browser_mgr.new_page()
-            params = {"SearchText": keyword, "page": page}
-            url = f"{self.SEARCH_URL}?{urlencode(params)}"
-            logger.info(f"Playwright loading {url}")
-            page_obj.goto(url, timeout=60000, wait_until="networkidle")
-            page_obj.wait_for_timeout(random.randint(3000, 5000))
-            html = page_obj.content()
-            ctx.close()
-            if len(html) > 10000:
-                logger.info(f"Playwright success: {len(html)} bytes")
-                return self._parse_products(html)
-            return []
-        except Exception as e:
-            logger.error(f"Playwright AliExpress failed: {e}")
-            return []
+        for pw_attempt in range(max(len(self.proxy_mgr.available), 1) * 2):
+            try:
+                from src.source.browser import BrowserManager
+                proxy = self.proxy_mgr.get() if self.proxy_mgr.has_proxy else None
+                if self._browser_mgr is None:
+                    self._browser_mgr = BrowserManager(headless=True, proxy=proxy)
+                    self._browser_mgr.start()
+                ctx, page_obj = self._browser_mgr.new_page()
+                params = {"SearchText": keyword, "page": page}
+                url = f"{self.SEARCH_URL}?{urlencode(params)}"
+                logger.info(f"Playwright loading {url} (proxy: {proxy or 'none'})")
+                page_obj.goto(url, timeout=60000, wait_until="domcontentloaded")
+                page_obj.wait_for_timeout(random.randint(3000, 5000))
+                html = page_obj.content()
+                ctx.close()
+                if len(html) > 10000 and not self._is_blocked(html):
+                    logger.info(f"Playwright success: {len(html)} bytes")
+                    return self._parse_products(html)
+                logger.warning(f"Playwright bị chặn (attempt {pw_attempt+1})")
+                self.proxy_mgr.mark_failed(proxy)
+                if self._browser_mgr:
+                    self._browser_mgr.stop()
+                    self._browser_mgr = None
+            except Exception as e:
+                logger.error(f"Playwright AliExpress failed: {e}")
+                self.proxy_mgr.mark_failed(proxy)
+                if self._browser_mgr:
+                    self._browser_mgr.stop()
+                    self._browser_mgr = None
+        logger.warning("AliExpress chặn truy cập (IP bị block). Cần proxy sạch hoặc cookie đăng nhập để crawl.")
+        return []
 
     def crawl_by_keywords(self, keywords: list[str]) -> list[ProductSource]:
         all_products = []

@@ -232,7 +232,7 @@ class CaptionGenerator:
             return f"Sản phẩm {category}" if category else "Sản phẩm chất lượng cao"
         from src.processing.text_translate import TextTranslator
         t = TextTranslator({})
-        result = t._fallback_translate(title_cn)
+        result = t._dict_translate(title_cn)
         if result == title_cn:
             return f"{title_cn} - {category}" if category else title_cn
         return result
