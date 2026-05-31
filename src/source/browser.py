@@ -1,7 +1,19 @@
-from cloakbrowser import launch
+"""Browser automation manager using Patchright (Playwright fork with anti-detection).
+100% bypass rate on browsers-benchmark (vs 60% plain Playwright, 90% CloakBrowser).
+"""
 from src.utils.logger import setup_logger
 
 logger = setup_logger("browser")
+
+_pw = None
+
+
+def _get_pw():
+    global _pw
+    if _pw is None:
+        from patchright.sync_api import sync_playwright
+        _pw = sync_playwright().start()
+    return _pw
 
 
 class BrowserManager:
@@ -12,11 +24,18 @@ class BrowserManager:
         self._browser = None
 
     def start(self):
-        launch_opts = {"headless": self.headless}
+        pw = _get_pw()
+        launch_opts = {
+            "headless": self.headless,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+            ],
+        }
         if self.proxy:
-            launch_opts["proxy"] = self.proxy
-        self._browser = launch(**launch_opts)
-        logger.info(f"CloakBrowser started (headless={self.headless})")
+            launch_opts["proxy"] = {"server": self.proxy}
+        self._browser = pw.chromium.launch(**launch_opts)
+        logger.info(f"Patchright browser started (headless={self.headless})")
         return self
 
     def stop(self):
