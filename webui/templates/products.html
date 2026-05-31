@@ -1,12 +1,94 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="flex" style="margin-bottom:24px">
+<div class="flex" style="margin-bottom:24px;flex-wrap:wrap;gap:8px">
   <a href="/" class="step-btn" style="margin-right:4px">
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M7.5 2.5L4 6l3.5 3.5"/></svg>
     Dashboard
   </a>
   <h1 style="font-size:18px">Sản phẩm: <span style="color:var(--accent)">{{ store_id }}</span></h1>
   <span class="badge badge-accent" style="margin-left:auto">{{ products|length }} sản phẩm</span>
+  <button class="btn btn-sm btn-primary" onclick="showAddForm()">+ Thêm thủ công</button>
+  <button class="btn btn-sm btn-ghost" onclick="showImportForm()">Import CSV/JSON</button>
+</div>
+
+<!-- Add Product Modal -->
+<div class="modal-overlay" id="add-modal" style="display:none">
+  <div class="modal-box" style="max-width:520px">
+    <h3>Thêm sản phẩm thủ công</h3>
+    <div class="form-group">
+      <label class="form-label">Tên sản phẩm (tiếng Trung) *</label>
+      <input class="form-input" id="add-title-cn" placeholder="VD: 婴儿玩具">
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label class="form-label">Giá CNY *</label>
+        <input class="form-input" id="add-price" type="number" step="0.01" min="0" placeholder="15.5">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Giá gốc CNY</label>
+        <input class="form-input" id="add-original-price" type="number" step="0.01" min="0" placeholder="20">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tên tiếng Anh</label>
+      <input class="form-input" id="add-title-en" placeholder="Baby toy">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Image URLs (ngăn cách bằng dấu phẩy)</label>
+      <textarea class="form-textarea" id="add-images" rows="2" placeholder="https://…, https://…"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Mô tả</label>
+      <textarea class="form-textarea" id="add-desc" rows="3"></textarea>
+    </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label class="form-label">Danh mục</label>
+        <input class="form-input" id="add-category" placeholder="VD: đồ chơi">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Link sản phẩm</label>
+        <input class="form-input" id="add-url" placeholder="https://detail.1688.com/…">
+      </div>
+    </div>
+    <div class="flex" style="gap:8px;margin-top:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeAddForm()">Hủy</button>
+      <button class="btn btn-success" onclick="addProduct()">Thêm</button>
+    </div>
+    <div id="add-status" class="muted mt-12"></div>
+  </div>
+</div>
+
+<!-- Import Modal -->
+<div class="modal-overlay" id="import-modal" style="display:none">
+  <div class="modal-box" style="max-width:520px">
+    <h3>Import sản phẩm</h3>
+    <div class="form-group">
+      <label class="form-label">Chọn định dạng</label>
+      <select class="form-select" id="import-format">
+        <option value="csv">CSV (upload file)</option>
+        <option value="json">JSON (dán trực tiếp)</option>
+      </select>
+    </div>
+    <div id="import-file-section">
+      <div class="form-group">
+        <label class="form-label">File CSV</label>
+        <input class="form-input" id="import-file" type="file" accept=".csv,.tsv">
+        <span class="form-hint">Cột hỗ trợ: title/tên, price/giá, images/ảnh, description/mô tả, category/danh mục, supplier/ncc, url/link, platform</span>
+      </div>
+    </div>
+    <div id="import-json-section" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Dán JSON</label>
+        <textarea class="form-textarea" id="import-json" rows="6" placeholder='[{"title_cn":"Mèo đồ chơi","price_cny":15.5,"image_urls":"https://..."}]'></textarea>
+      </div>
+    </div>
+    <div class="flex" style="gap:8px;margin-top:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeImportForm()">Hủy</button>
+      <button class="btn btn-success" onclick="importProducts()">Import</button>
+    </div>
+    <div id="import-status" class="muted mt-12"></div>
+  </div>
 </div>
 
 {% if products %}
@@ -19,6 +101,7 @@
         <div class="flex gap-sm" style="font-size:13px;color:var(--text-secondary);flex-wrap:wrap">
           <span>Giá: <strong style="color:var(--text)">{{ p.price_cny }}¥</strong>
           {%- if p.price_vnd %} / <strong style="color:var(--success)">{{ '{:,}'.format(p.price_vnd|int) }}₫</strong>{% endif %}</span>
+          <span class="badge badge-accent">{{ p.platform or 'manual' }}</span>
           {% if p.hashtags %}<span class="badge badge-accent">{{ p.hashtags[:3]|join(', ') }}{% if p.hashtags|length > 3 %}…{% endif %}</span>{% endif %}
         </div>
         {% if p.bullet_points %}
@@ -28,7 +111,7 @@
         {% endif %}
       </div>
       <div class="text-sm muted text-right" style="flex-shrink:0;margin-left:16px">
-        <div style="font-family:monospace;font-size:12px">{{ p.product_id }}</div>
+        <div style="font-family:monospace;font-size:12px">{{ p.product_id or p.id }}</div>
         {% if p.images_processed %}<div style="margin-top:2px;font-size:12px;color:var(--text-muted)">{{ p.images_processed|length }} ảnh</div>{% endif %}
       </div>
     </div>
@@ -41,7 +124,78 @@
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
   </div>
   <p>Chưa có sản phẩm.</p>
-  <span class="muted" style="font-size:13px">Chạy crawl trước trên Dashboard.</span>
+  <div class="flex gap-sm" style="margin-top:8px">
+    <button class="btn btn-primary" onclick="showAddForm()">+ Thêm sản phẩm thủ công</button>
+    <span class="muted" style="font-size:13px;line-height:36px">hoặc</span>
+    <button class="btn btn-ghost" onclick="showImportForm()">Import CSV/JSON</button>
+  </div>
 </div>
 {% endif %}
+
+<script>
+function showAddForm() { document.getElementById('add-modal').style.display = 'block'; }
+function closeAddForm() { document.getElementById('add-modal').style.display = 'none'; document.getElementById('add-status').textContent = ''; }
+
+function addProduct() {
+  var data = {
+    title_cn: document.getElementById('add-title-cn').value.trim(),
+    title_en: document.getElementById('add-title-en').value.trim(),
+    price_cny: document.getElementById('add-price').value,
+    original_price_cny: document.getElementById('add-original-price').value,
+    image_urls: document.getElementById('add-images').value.trim(),
+    description_cn: document.getElementById('add-desc').value.trim(),
+    category_name_cn: document.getElementById('add-category').value.trim(),
+    detail_url: document.getElementById('add-url').value.trim(),
+  };
+  var st = document.getElementById('add-status');
+  st.textContent = 'Đang thêm...';
+  fetch('/products/{{ store_id }}/add', {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.error) { st.textContent = 'LỖI: ' + d.error; return; }
+    st.textContent = 'Đã thêm! Tải lại...';
+    setTimeout(function() { location.reload(); }, 500);
+  });
+}
+
+function showImportForm() {
+  document.getElementById('import-modal').style.display = 'block';
+  document.getElementById('import-status').textContent = '';
+  toggleImportFormat();
+}
+function closeImportForm() { document.getElementById('import-modal').style.display = 'none'; }
+
+document.getElementById('import-format').addEventListener('change', toggleImportFormat);
+function toggleImportFormat() {
+  var fmt = document.getElementById('import-format').value;
+  document.getElementById('import-file-section').style.display = fmt === 'csv' ? 'block' : 'none';
+  document.getElementById('import-json-section').style.display = fmt === 'json' ? 'block' : 'none';
+}
+
+function importProducts() {
+  var fmt = document.getElementById('import-format').value;
+  var st = document.getElementById('import-status');
+  st.textContent = 'Đang import...';
+  if (fmt === 'json') {
+    fetch('/products/{{ store_id }}/import', {
+      method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'format=json&json_data=' + encodeURIComponent(document.getElementById('import-json').value)
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      st.textContent = d.error ? 'LỖI: ' + d.error : 'Đã import ' + d.count + ' sản phẩm!';
+      if (!d.error) setTimeout(function() { location.reload(); }, 1000);
+    });
+  } else {
+    var file = document.getElementById('import-file').files[0];
+    if (!file) { st.textContent = 'Chọn file CSV trước'; return; }
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('format', 'csv');
+    fetch('/products/{{ store_id }}/import', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); }).then(function(d) {
+      st.textContent = d.error ? 'LỖI: ' + d.error : 'Đã import ' + d.count + ' sản phẩm!';
+      if (!d.error) setTimeout(function() { location.reload(); }, 1000);
+    });
+  }
+}
+</script>
 {% endblock %}
