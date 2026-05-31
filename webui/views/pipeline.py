@@ -40,9 +40,10 @@ def run_step(store_id, step):
             config.setdefault('sources', {}).setdefault('1688', {})['max_pages'] = int(rp['max_pages_1688'])
         if 'max_pages_aliexpress' in rp:
             config.setdefault('sources', {}).setdefault('aliexpress', {})['max_pages'] = int(rp['max_pages_aliexpress'])
-        if 'proxy' in rp and rp['proxy']:
-            config.setdefault('sources', {}).setdefault('1688', {})['proxy'] = rp['proxy']
-            config.setdefault('sources', {}).setdefault('aliexpress', {})['proxy'] = rp['proxy']
+        if 'proxies' in rp and rp['proxies']:
+            plist = [p.strip() for p in rp['proxies'].replace('\r\n', '\n').split('\n') if p.strip()]
+            config.setdefault('sources', {}).setdefault('1688', {})['proxies'] = plist
+            config.setdefault('sources', {}).setdefault('aliexpress', {})['proxies'] = plist
         if 'cookies_1688' in rp and rp['cookies_1688']:
             try:
                 config.setdefault('sources', {}).setdefault('1688', {})['cookies'] = json.loads(rp['cookies_1688'])

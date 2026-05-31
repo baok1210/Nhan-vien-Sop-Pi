@@ -115,7 +115,7 @@ _STEP_FIELDS: dict[str, list[dict]] = {
         {'name':'max_pages_1688', 'label':'Số trang 1688', 'type':'number', 'default':3, 'min':1, 'max':20},
         {'name':'max_pages_aliexpress', 'label':'Số trang AliExpress', 'type':'number', 'default':3, 'min':1, 'max':20},
         {'name':'', 'label':'Mạng & Chống chặn', 'type':'separator'},
-        {'name':'proxy', 'label':'Proxy (http/socks)', 'type':'text', 'default':'', 'help':'VD: http://127.0.0.1:8080'},
+        {'name':'proxies', 'label':'Danh sách proxy (mỗi dòng 1 proxy)', 'type':'textarea', 'default':'', 'help':'http://user:pass@ip:port — mỗi dòng 1 proxy, tự động rotation khi bị chặn'},
         {'name':'delay_min', 'label':'Delay min (giây)', 'type':'number', 'default':3, 'min':1, 'max':60},
         {'name':'delay_max', 'label':'Delay max (giây)', 'type':'number', 'default':8, 'min':1, 'max':60},
         {'name':'max_retries', 'label':'Số lần thử lại', 'type':'number', 'default':3, 'min':1, 'max':20},

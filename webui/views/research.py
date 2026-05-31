@@ -90,14 +90,75 @@ def research_shopee_login():
 def research_save_cookies():
     data = request.get_json(silent=True) or {}
     raw = data.get('cookies', '')
+    source = data.get('source', 'shopee')
     if not raw:
         return jsonify({'error': 'Thiếu cookies'}), 400
     try:
         parsed = json.loads(raw) if isinstance(raw, str) else raw
         if not isinstance(parsed, list):
             return jsonify({'error': 'Phải là mảng JSON'}), 400
-        Path('data/shopee_cookies.json').write_text(json.dumps(parsed, indent=2), encoding='utf-8')
-        add_log(f'✅ Đã lưu {len(parsed)} cookie thủ công từ Shopee')
+
+        filenames = {
+            'shopee': 'data/shopee_cookies.json',
+            '1688': 'config/1688_cookies.json',
+            'aliexpress': 'config/aliexpress_cookies.json',
+        }
+        fname = filenames.get(source, 'data/shopee_cookies.json')
+        Path(fname).write_text(json.dumps(parsed, indent=2), encoding='utf-8')
+        names = {'shopee': 'Shopee', '1688': '1688', 'aliexpress': 'AliExpress'}
+        label = names.get(source, source)
+        add_log(f'✅ Đã lưu {len(parsed)} cookie từ {label}')
         return jsonify({'status': 'ok', 'count': len(parsed)})
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+
+@research_bp.route('/research/crawl-login', methods=['POST'])
+def research_crawl_login():
+    source = request.json.get('source', '1688') if request.is_json else '1688'
+    urls = {'1688': 'https://www.1688.com', 'aliexpress': 'https://www.aliexpress.com'}
+    url = urls.get(source, 'https://www.1688.com')
+    cookie_files = {'1688': 'config/1688_cookies.json', 'aliexpress': 'config/aliexpress_cookies.json'}
+    cookie_file = Path(cookie_files.get(source, 'config/1688_cookies.json'))
+
+    def _open_browser(_source=source, _url=url, _cf=cookie_file):
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                chrome_paths = [
+                    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                    os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+                ]
+                chrome_exe = next((pth for pth in chrome_paths if os.path.isfile(pth)), None)
+                user_data = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data")
+                if chrome_exe and os.path.isdir(user_data):
+                    add_log(f'🟢 Đang mở Chrome với profile hiện tại để đăng nhập {_source}...')
+                    browser = p.chromium.launch(
+                        headless=False,
+                        executable_path=chrome_exe,
+                        args=[f"--user-data-dir={user_data}"]
+                    )
+                else:
+                    add_log(f'🟢 Đang mở trình duyệt Playwright cho {_source}...')
+                    browser = p.chromium.launch(headless=False)
+                ctx = browser.new_context(
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36'
+                )
+                page = ctx.new_page()
+                page.goto(_url, timeout=30000)
+                page.wait_for_timeout(5000)
+                add_log(f'🟢 Đã mở {_url}. Đăng nhập trong 120s...')
+                page.wait_for_timeout(120000)
+                cookies = ctx.cookies()
+                if cookies:
+                    _cf.write_text(json.dumps(cookies, indent=2), encoding='utf-8')
+                    add_log(f'✅ Đã lưu {len(cookies)} cookie từ {_source}')
+                else:
+                    add_log(f'⚠️ Không lấy được cookie từ {_source}')
+                browser.close()
+        except Exception as e:
+            add_log(f'⚠️ Lỗi Playwright cho {_source}: {e}')
+
+    threading.Thread(target=_open_browser, daemon=True).start()
+    return jsonify({'status': 'opened', 'msg': f'Đã mở trình duyệt {source}. Đăng nhập trong 120s, cookie sẽ tự động lưu.'})
