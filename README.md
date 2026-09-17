@@ -74,10 +74,17 @@ python src\main.py                  # Chạy toàn bộ pipeline
 
 ### File cấu hình
 
-| File | Chức năng |
-|------|-----------|
-| `config/config.json` | Thông tin shop, từ khóa, nguồn hàng |
-| `.env` | API keys, bí mật (không bị commit lên Git) |
+| File | Chức năng | Commit lên Git? |
+|------|-----------|-----------------|
+| `config/config.example.json` | Template cấu hình mẫu | ✅ Có |
+| `config/config.json` | Cấu hình thật của bạn (từ `setup.py` tự tạo) | ❌ Không |
+| `config/stores/*.json` | Cấu hình từng store | ❌ Không |
+| `.env.example` | Template API keys | ✅ Có |
+| `.env` | API keys, bí mật thật (từ `setup.py` tự tạo) | ❌ Không |
+| `config/*_cookies.*`, `data/shopee_cookies.json` | Cookie đăng nhập (cục bộ) | ❌ Không — **không bao giờ commit** |
+
+> 🔒 **Bảo mật:** Cookie Shopee/1688/AliExpress và file cấu hình cá nhân nằm ngoài Git.
+> Nếu bạn từng commit nhầm cookie, hãy **đăng xuất khỏi mọi thiết bị** trên dịch vụ đó để vô hiệu phiên cũ.
 
 ### Chuẩn bị API keys
 

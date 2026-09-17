@@ -48,3 +48,16 @@ Thumbs.db
 # Temp
 tmp/
 temp/
+
+# Cookie exports — bat ky dinh dang nao (export_cookies.py ghi ca .json)
+config/*_cookies.json
+config/*_cookies.txt
+config/1688_cookies.json
+config/aliexpress_cookies.json
+# Personal runtime config — bat dau tu config.example.json
+config/config.json
+# Debug dumps
+data/debug_*.html
+
+# Exception: template file MUST be committed
+!.env.example

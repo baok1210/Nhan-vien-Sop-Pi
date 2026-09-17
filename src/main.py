@@ -56,8 +56,19 @@ def _merge_env(config: dict, envs: dict):
 
 
 def load_config(path: str = "config/config.json") -> dict:
-    with open(path, encoding="utf-8") as f:
-        config = json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        # Fresh clone chua chay setup — dung example de app van khoi dong duoc
+        try:
+            example = "config/config.example.json"
+            with open(example, encoding="utf-8") as f:
+                config = json.load(f)
+        except FileNotFoundError:
+            config = {}
+    except json.JSONDecodeError:
+        config = {}
     _merge_env(config, _load_dotenv())
     return config
 

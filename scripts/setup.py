@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """One-command setup for newbies: python scripts/setup.py"""
-import subprocess, sys, os
+import json, shutil, subprocess, sys, os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,10 +32,40 @@ def main():
     env_example = BASE_DIR / ".env.example"
     env_file = BASE_DIR / ".env"
     if not env_file.exists() and env_example.exists():
-        env_example.rename(env_file) if not env_file.exists() else None
+        shutil.copyfile(env_example, env_file)
         print("  Da tao .env tu .env.example")
-    else:
+    elif env_file.exists():
         print("  .env da ton tai, bo qua")
+    else:
+        print("  !! Khong tim thay .env.example — tao .env rong")
+        env_file.write_text("", encoding="utf-8")
+
+    print("\n--- 3b. Tao config/config.json (neu chua co) ---")
+    cfg_example = BASE_DIR / "config" / "config.example.json"
+    cfg_file = BASE_DIR / "config" / "config.json"
+    if not cfg_file.exists() and cfg_example.exists():
+        shutil.copyfile(cfg_example, cfg_file)
+        print("  Da tao config/config.json tu config.example.json")
+    elif cfg_file.exists():
+        print("  config.json da ton tai, bo qua")
+
+    # Stores dir phai ton tai truoc khi pipeline chay
+    stores_dir = BASE_DIR / "config" / "stores"
+    stores_dir.mkdir(parents=True, exist_ok=True)
+    ex_store = stores_dir / "example.json"
+    if not ex_store.exists():
+        ex_store.write_text(
+            json.dumps({
+                "id": "example", "name": "Store mau (sua hoac xoa)",
+                "niche": {"keywords_cn": ["\u624b\u673a\u914d\u4ef6"], "keywords_en": ["phone accessories"],
+                          "keywords_vn": ["ph\u1ee5 ki\u1ec7n \u0111i\u1ec7n tho\u1ea1i"], "category_shopee_id": 0,
+                          "max_price_cny": 50, "min_margin_percent": 30,
+                          "min_margin_percentage": 0.15, "price_multiplier": 2.5,
+                          "competitor_search_enabled": True},
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print("  Da tao config/stores/example.json (store mau)")
 
     print("\n--- 4. Cau hinh thong tin ---")
     run(f"{PY} scripts/config_wizard.py", "Config wizard")
