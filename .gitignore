@@ -61,3 +61,6 @@ data/debug_*.html
 
 # Exception: template file MUST be committed
 !.env.example
+
+# Tool-owned browser profiles (login session, personal data)
+chrome-profile-*/
