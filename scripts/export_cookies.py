@@ -11,9 +11,11 @@ Cách hoạt động:
 Usage:
     python scripts/export_cookies.py
 """
-import json, os, sqlite3, shutil, tempfile, sys
+import json, os, sqlite3, shutil, tempfile, sys, base64
 from pathlib import Path
 from datetime import datetime
+
+CDP_PORT = int(os.environ.get("CHROME_CDP_PORT", "9333"))
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 if hasattr(sys.stdout, 'reconfigure'):
@@ -23,6 +25,8 @@ if hasattr(sys.stderr, 'reconfigure'):
 from src.utils.logger import setup_logger
 
 logger = setup_logger("cookie_exporter")
+
+AUTO = {"restart": None}  # cau hoi restart Chrome 1 lan duy nhat moi chay
 
 # Auto-detect all Chrome profiles
 _CHROME_BASE = os.environ.get("LOCALAPPDATA", "") + r"\Google\Chrome\User Data"
@@ -41,17 +45,41 @@ DOMAINS = {
 }
 
 
+def _aesgcm_decrypt(enc_val: bytes) -> bytes | None:
+    """Decrypt Chrome v10/v11 blob: AES-256-GCM voi key trong 'Local State'
+    (chinh key nay duoc DPAPI bao ve). Cach nay moi dung voi Chrome hien dai."""
+    try:
+        import win32crypt
+        from Crypto.Cipher import AES
+    except ImportError:
+        return None
+    try:
+        local_state = Path(_CHROME_BASE) / "Local State"
+        key_b64 = json.loads(local_state.read_text(encoding="utf-8"))["os_crypt"]["encrypted_key"]
+        key = win32crypt.CryptUnprotectData(base64.b64decode(key_b64)[5:], None, None, None, 0)[1]
+        nonce, body = enc_val[3:15], enc_val[15:]
+        return AES.new(key, AES.MODE_GCM, nonce=nonce).decrypt_and_verify(body[:-16], body[-16:])
+    except Exception:
+        return None
+
+
 def _decrypt(enc_val: bytes) -> bytes | None:
-    """Decrypt Chrome cookie value using Windows DPAPI."""
+    """Decrypt Chrome cookie value: AES-GCM truoc, DPAPI-truc-tiep cho blob cu."""
     if not enc_val or enc_val == b"":
         return None
     if enc_val.startswith(b"v10") or enc_val.startswith(b"v11"):
+        val = _aesgcm_decrypt(enc_val)
+        if val:
+            return val
+        # Fallback Chrome cu (pre-80): DPAPI truc tiep
         try:
             import win32crypt
             return win32crypt.CryptUnprotectData(enc_val, None, None, None, 0)[1]
         except ImportError:
             logger.warning("win32crypt not installed, trying raw value")
             return enc_val
+        except Exception:
+            return None
     return enc_val
 
 
@@ -132,7 +160,94 @@ def _export_via_playwright(domains: list[str]) -> dict:
     return all_cookies
 
 
-def export_cookies(domains: list[str]) -> dict:
+def _cdp_alive(port: int) -> bool:
+    import urllib.request
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def _restart_chrome_with_debug(port: int) -> bool:
+    """Dong Chrome hien tai, mo lai CUNG profile voi CDP. Chrome se hoi phuc
+    session/tab; cookie dang nhap giu nguyen vi cung user-data-dir."""
+    import time, subprocess
+    exe = next((p for p in [
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ] if Path(p).exists()), None)
+    if not exe:
+        logger.warning("Khong tim thay chrome.exe")
+        return False
+    running = subprocess.run(["tasklist", "/FI", "IMAGENAME eq chrome.exe"],
+                             capture_output=True, text=True).stdout.lower()
+    if "chrome.exe" in running:
+        logger.info("Dong Chrome hien tai (tab se duoc hoi phuc khi mo lai)...")
+        subprocess.run(["taskkill", "/IM", "chrome.exe", "/F"], capture_output=True)
+        time.sleep(3)
+    subprocess.Popen([exe, f"--remote-debugging-port={port}"],
+                     creationflags=0x00000008)  # DETACHED_PROCESS
+    for _ in range(30):
+        time.sleep(1)
+        if _cdp_alive(port):
+            logger.info(f"Chrome da len o che do debug (port {port})")
+            return True
+    return False
+
+
+def _export_via_cdp(domains: list[str]) -> dict:
+    """Method 0: doc cookie tu Chrome DANG CHAY qua CDP (Storage.getCookies).
+    Chrome tu giai ma — hoat dong ca voi App-Bound Encryption (Chrome 127+),
+    tuc la duong duy nhat con lai voi cookie dang nhap tren Chrome moi.
+    Yeu cau Chrome mo voi --remote-debugging-port (mac dinh 9222)."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json/version", timeout=3) as r:
+            ver = json.loads(r.read().decode())
+    except Exception:
+        logger.info(f"CDP: khong co Chrome debug o port {CDP_PORT} - bo qua Method 0")
+        return {}
+    try:
+        import websocket
+    except ImportError:
+        logger.warning("CDP: chua cai websocket-client (pip install websocket-client)")
+        return {}
+    ws_url = ver.get("webSocketDebuggerUrl")
+    if not ws_url:
+        return {}
+    try:
+        ws = websocket.create_connection(ws_url, timeout=15)
+        ws.send(json.dumps({"id": 1, "method": "Storage.getCookies"}))
+        msg = {}
+        for _ in range(20):
+            msg = json.loads(ws.recv())
+            if msg.get("id") == 1:
+                break
+        ws.close()
+        all_cookies = (msg.get("result") or {}).get("cookies") or []
+        out = {}
+        suffixes = tuple(d.lstrip(".") for d in domains)
+        for c in all_cookies:
+            d = (c.get("domain") or "").lstrip(".")
+            if d.endswith(suffixes) and c.get("value"):
+                out[c["name"]] = c["value"]
+        logger.info(f"CDP OK: {len(all_cookies)} cookies tong, {len(out)} khop domain")
+        return out
+    except Exception as e:
+        logger.warning(f"CDP failed: {e}")
+        return {}
+
+
+def export_cookies(domains: list[str], auto_restart: bool = False) -> dict:
+    # Method 0: Chrome dang chay qua CDP - duy nhat hoat dong voi Chrome 127+ ABE
+    if not _cdp_alive(CDP_PORT) and auto_restart:
+        _restart_chrome_with_debug(CDP_PORT)
+    cookies = _export_via_cdp(domains)
+    if cookies:
+        return cookies
+
     # Method 1: Copy SQLite DB (works with Chrome running)
     for db_path in CHROME_PATHS:
         if not Path(db_path).exists():
@@ -165,7 +280,13 @@ def main():
 
     for target, domains in DOMAINS.items():
         print(f"\n--- {target} ---")
-        cookies = export_cookies(domains)
+        if not _cdp_alive(CDP_PORT) and AUTO["restart"] is None:
+            ans = input("Khong thay Chrome debug. Dong Chrome va mo lai o che do debug de lay cookie dang nhap? [Y/n] ").strip().lower()
+            AUTO["restart"] = (ans != "n")
+            if AUTO["restart"] and not _restart_chrome_with_debug(CDP_PORT):
+                print("  Khong mo duoc Chrome debug — se thu cac cach cu.")
+                AUTO["restart"] = False
+        cookies = export_cookies(domains, auto_restart=AUTO["restart"] or False)
 
         if cookies:
             out_json = Path(f"config/{target}_cookies.json")

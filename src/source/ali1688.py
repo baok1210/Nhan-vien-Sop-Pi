@@ -118,6 +118,10 @@ class Ali1688Scraper:
                 html = resp.text
                 if len(html) < 5000 or self._is_blocked(html):
                     logger.warning(f"1688 CAPTCHA/anti-bot cho '{keyword}' (attempt {attempt+1})")
+                    # curl_cffi khong vuot duoc JS challenge cua 1688 —
+                    # neu co profile login thi chuyen thang sang browser
+                    if Path("chrome-profile-1688").exists():
+                        break
                     self.proxy_mgr.mark_failed()
                     self._renew_session()
                     time.sleep(random.uniform(3, 8))
@@ -156,35 +160,66 @@ class Ali1688Scraper:
         return any(signals)
 
     def _search_with_playwright(self, keyword: str, page: int = 1) -> list[ProductSource]:
-        for pw_attempt in range(max(len(self.proxy_mgr.available), 1) * 2):
+        """Dung profile persistent (chrome-profile-1688) headful.
+        headless=True bi 1688 punish (x5sec) gan nhu ngay lap tuc;
+        profile da login + headful la combo duy nhat on dinh."""
+        profile = Path("chrome-profile-1688")
+        if not profile.exists():
+            logger.warning(
+                "Chua co profile 1688 — chay 'python scripts/login_source.py 1688' "
+                "de dang nhap 1 lan (tool tu luu cookie + profile)."
+            )
+            return []
+        for pw_attempt in range(2):
+            ctx = None
             try:
-                from src.source.browser import BrowserManager
-                proxy = self.proxy_mgr.get() if self.proxy_mgr.has_proxy else None
-                if self._browser_mgr is None:
-                    self._browser_mgr = BrowserManager(headless=True, proxy=proxy)
-                    self._browser_mgr.start()
-                ctx, page_obj = self._browser_mgr.new_page()
+                from patchright.sync_api import sync_playwright
+                pw = sync_playwright().start()
+                try:
+                    ctx = pw.chromium.launch_persistent_context(
+                        user_data_dir=str(profile),
+                        headless=False,  # headless bi punish
+                        args=["--no-sandbox", "--window-size=1400,900"],
+                    )
+                    pg = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    params = {"keywords": keyword, "n": "y", "pageNum": page}
+                    if self.dropship_only:
+                        params["isDropship"] = "true"
+                    url = f"{self.SEARCH_URL}?{urlencode(params)}"
+                    pg.goto(url, timeout=60000, wait_until="domcontentloaded")
+                    pg.wait_for_timeout(random.randint(6000, 9000))
 
-                params = {"keywords": keyword, "n": "y", "pageNum": page}
-                url = f"{self.SEARCH_URL}?{urlencode(params)}"
-                page_obj.goto(url, timeout=60000, wait_until="domcontentloaded")
-                page_obj.wait_for_timeout(random.randint(3000, 5000))
-                html = page_obj.content()
+                    # Captcha? CUA SO VAN MO — cho nguoi giai toi da 3 phut
+                    for _ in range(60):
+                        u = pg.url or ""
+                        if "/punish" not in u and "_____tmd_____" not in u:
+                            break
+                        if _ == 0:
+                            logger.warning(
+                                "1688 hoi xac minh — CUA SO DA MO. Keo slider/nhap code "
+                                "trong cua so do; tool tu tiep tuc sau khi ban xong..."
+                            )
+                        pg.wait_for_timeout(3000)
 
-                ctx.close()
-                if len(html) > 10000 and not self._is_blocked(html):
-                    return self._parse_products(html, keyword)
-                logger.warning(f"Playwright bị chặn (attempt {pw_attempt+1})")
-                self.proxy_mgr.mark_failed(proxy)
-                if self._browser_mgr:
-                    self._browser_mgr.stop()
-                    self._browser_mgr = None
+                    pg.goto(url, timeout=60000, wait_until="domcontentloaded")
+                    pg.wait_for_timeout(random.randint(6000, 9000))
+                    html = pg.content()
+                    if len(html) > 10000 and not self._is_blocked(html):
+                        return self._parse_products(html, keyword)
+                    logger.warning(f"Playwright bị chặn (attempt {pw_attempt+1})")
+                finally:
+                    try:
+                        ctx.close()
+                    except Exception:
+                        pass
+                    try:
+                        pw.stop()
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.error(f"Playwright 1688 search failed: {e}")
-                self.proxy_mgr.mark_failed(proxy)
-                if self._browser_mgr:
-                    self._browser_mgr.stop()
-                    self._browser_mgr = None
+            except Exception as e:
+                logger.error(f"Playwright 1688 search failed: {e}")
         logger.warning("1688 chặn truy cập (IP bị block). Cần proxy sạch Trung Quốc hoặc cookie đăng nhập.")
         return []
 

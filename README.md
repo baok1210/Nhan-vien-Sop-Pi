@@ -4,7 +4,7 @@ Tự động tìm kiếm sản phẩm từ **1688.com** và **AliExpress**, xử
 
 ## Tính năng
 
-- **Crawl tự động** — Tìm sản phẩm từ 1688.com (cookie Chrome) và AliExpress (API chính thức)
+- **Crawl tự động** — Tìm sản phẩm từ 1688.com và AliExpress (API chính thức)
 - **Kiểm tra dữ liệu** — Tự động validate giá, tên, mô tả trước khi xử lý
 - **Xóa nền ảnh** — Tự động xóa phông, thêm watermark, chống trùng ảnh
 - **Tạo caption tiếng Việt** — Dùng Google Gemini AI hoặc từ điển mẫu
@@ -99,11 +99,11 @@ python src\main.py                  # Chạy toàn bộ pipeline
 | Google Gemini | https://aistudio.google.com/apikey | **Miễn phí** (60 req/phút) |
 | AliExpress API | https://openservice.aliexpress.com | **Miễn phí** |
 | Shopee API | https://open.shopee.com | Miễn phí |
-| 1688.com | Đăng nhập Chrome là được | Miễn phí |
+| 1688.com | Đăng nhập 1 lần bằng lệnh bên dưới | Miễn phí |
 
 ### Hướng dẫn nhanh
 
-1. **1688**: Đăng nhập [1688.com](https://1688.com) trong Chrome → cookie tự động được dùng
+1. **1688**: Chạy `python scripts\login_source.py 1688` → cửa sổ mở ra → đăng nhập bằng tay **1 lần duy nhất**. Tool tự lưu profile + cookie. Cửa sổ Chrome sẽ tự mở mỗi khi crawl — nếu 1688 hỏi xác minh (slider), kéo slider là tool tự chạy tiếp
 2. **Gemini**: Vào [aistudio.google.com](https://aistudio.google.com/apikey) → Generate API key → dán vào `.env`
 3. **AliExpress API**: Vào [openservice.aliexpress.com](https://openservice.aliexpress.com) → Tạo App → lấy App Key + Secret
 4. **Shopee API**: Vào [open.shopee.com](https://open.shopee.com) → Đăng ký App → lấy Partner ID + Key
