@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nhan-vien-sop-pi"
+version = "1.0.0"
+description = "China Dropship to Shopee — crawl 1688/AliExpress, xu ly anh, caption AI, tu dong dang Shopee"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+include = ["src*", "webui*"]

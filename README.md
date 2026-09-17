@@ -43,7 +43,7 @@ python scripts\run_web.py
 python scripts\run_web.py
 ```
 
-Mở trình duyệt: **http://localhost:7860**
+Mở trình duyệt: **http://localhost:5000**
 
 ### Web UI có 4 trang
 
@@ -58,6 +58,12 @@ Mở trình duyệt: **http://localhost:7860**
 
 ```bash
 python scripts\run.py
+```
+
+### Web UI FastAPI (bản cũ, tuỳ chọn)
+
+```bash
+python -m uvicorn src.web.app:app --port 7860
 ```
 
 ### Chạy từng bước riêng
@@ -112,7 +118,8 @@ src/
 │   ├── aliexpress.py        # Crawler AliExpress (web)
 │   └── aliexpress_api.py    # AliExpress API chính thức
 ├── models/product.py        # ProductSchema (Pydantic validation)
-├── web/                     # Web UI (FastAPI)
+├── web/                     # Web UI (FastAPI — bản cũ)
+├── webui/                   # Web UI Flask chính (port 5000)
 │   ├── app.py
 │   └── templates/
 ├── tui/                     # Terminal UI (Textual)
